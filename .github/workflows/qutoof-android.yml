@@ -1,0 +1,122 @@
+name: Build Android APK (قُطوف)
+
+# السورس خاص في EGYFIRE/Short-video ولا يُبنى هناك أبدًا: الريبوهات الخاصة تشترك في
+# 2000 دقيقة شهريًا فقط. البناء يتم هنا (ريبو عام = دقائق مجانية غير محدودة)، والناتج
+# يُنشر كـ Release على هذا الريبو بتاج يبدأ بـ qutoof-.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع أو الكوميت في الريبو الخاص المطلوب بناؤه"
+        required: false
+        default: "claude/islamic-shorts-app-4gnou9"
+      run_tests:
+        description: "تشغيل اختبارات التطبيق والخادم قبل البناء"
+        required: false
+        default: "true"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: بناء ونشر قُطوف
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/Short-video
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Node (لاختبارات الخادم)
+        if: ${{ inputs.run_tests == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: اختبارات الخادم
+        if: ${{ inputs.run_tests == 'true' }}
+        working-directory: server
+        env:
+          DATABASE_URL: file:./data/ci.db
+          JWT_SECRET: ci-secret-only
+          ADMIN_EMAIL: admin@qutoof.app
+          ADMIN_PASSWORD: CiPassword!2026
+          NODE_ENV: test
+        run: |
+          npm ci
+          npx prisma generate
+          npx prisma db push --skip-generate
+          npm run db:seed
+          npm test
+
+      - name: اختبارات التطبيق
+        if: ${{ inputs.run_tests == 'true' }}
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
+
+      - name: قراءة رقم الإصدار من المشروع
+        id: version
+        run: |
+          VERSION=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=qutoof-v$VERSION-b${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "بناء الإصدار $VERSION"
+
+      - name: بناء APK و AAB
+        run: ./gradlew --no-daemon --stacktrace assembleRelease bundleRelease
+
+      - name: تجهيز الملفات
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/qutoof-$VERSION.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "dist/qutoof-$VERSION.aab"
+          ( cd dist && sha256sum ./*.apk ./*.aab > SHA256SUMS.txt )
+          ls -la dist
+
+      - name: تجهيز وصف الإصدار
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          NOTES="docs/release-notes/v$VERSION.md"
+          if [ -f "$NOTES" ]; then cp "$NOTES" release-body.md; else printf '## قُطوف %s\n' "$VERSION" > release-body.md; fi
+          {
+            printf '\n---\n\n### الملفات\n\n'
+            printf '> ملف APK موقّع بمفتاح التطوير (debug) — كافٍ للتجربة والتثبيت المباشر،\n'
+            printf '> ويحتاج مفتاح نشر حقيقي قبل الرفع على Google Play.\n\n'
+            printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n\n'
+            printf '_بُني من الريبو الخاص `EGYFIRE/Short-video` عند `%s` — بناء رقم %s._\n' "${{ inputs.ref }}" "${{ github.run_number }}"
+          } >> release-body.md
+
+      - name: نشر الإصدار
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "قُطوف — إصدار v${{ steps.version.outputs.version }} (بناء ${{ github.run_number }})"
+          body_path: release-body.md
+          files: dist/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
