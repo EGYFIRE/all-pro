@@ -1,0 +1,60 @@
+name: Build Android APK (كابتن الصالة)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع أو الكوميت في الريبو الخاص المطلوب بناؤه"
+        required: false
+        default: "claude/restaurant-pos-professional-m6lnq1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-captain
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/App-exe-pc
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required SDK packages
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/كابتن-الصالة.apk
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-v0.1.${{ github.run_number }}
+          name: "تطبيق كابتن الصالة - إصدار v0.1.${{ github.run_number }}"
+          body: "تحميل مباشر لتطبيق كابتن الصالة (أندرويد). ثبّته على تابلت/موبايل الكابتن، وسجّل دخول بنفس بيانات الربط السحابي المُفعّلة من برنامج الكاشير."
+          files: android-captain/app/build/outputs/apk/debug/كابتن-الصالة.apk
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

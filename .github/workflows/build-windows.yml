@@ -1,0 +1,46 @@
+name: Build Windows EXE (كاشير المطعم الاحترافي)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع أو الكوميت في الريبو الخاص المطلوب بناؤه"
+        required: false
+        default: "claude/restaurant-pos-professional-m6lnq1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/App-exe-pc
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Windows installer + portable exe
+        run: npx electron-builder --win nsis portable --publish never
+
+      - name: Create GitHub Release with EXE files
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "كاشير المطعم الاحترافي - بناء رقم ${{ github.run_number }}"
+          body: "تحميل مباشر لملف تثبيت الكاشير (Setup) والنسخة المحمولة لويندوز."
+          files: |
+            dist/*.exe
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
