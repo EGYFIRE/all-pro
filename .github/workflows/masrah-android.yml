@@ -99,6 +99,18 @@ jobs:
           ( cd dist && sha256sum ./*.apk > SHA256SUMS.txt )
           ls -la dist
 
+      # نسخة تانية من نفس الملف كـ artifact. الإصدار مسوّدة، وتنزيل ملف من
+      # مسوّدة بيتطلب تسجيل دخول بحساب له صلاحية كتابة — وده بيمنع أي أداة
+      # آلية إنها تجيب الملف وتسلّمه. الـ artifact بيتجاب بالـ API، فينفع
+      # يتبعت مباشرة من غير ما حد يفتح المتصفح.
+      - name: رفع الـ APK كـ artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: masrah-apk-${{ steps.version.outputs.version }}
+          path: dist/*.apk
+          retention-days: 14
+          if-no-files-found: error
+
       - name: تجهيز وصف الإصدار
         run: |
           VERSION="${{ steps.version.outputs.version }}"
