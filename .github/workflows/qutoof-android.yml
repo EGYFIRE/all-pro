@@ -48,7 +48,20 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Set up Node (لاختبارات الخادم)
+      # الخادم المنشور هو server-php؛ نسخة Node تُختبر معه لأن عقد الواجهة واحد للاثنين.
+      - name: Set up PHP (لاختبارات الخادم المنشور)
+        if: ${{ inputs.run_tests == 'true' }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_sqlite, mbstring, fileinfo
+          coverage: none
+
+      - name: اختبارات الخادم (PHP — المنشور)
+        if: ${{ inputs.run_tests == 'true' }}
+        run: php server-php/tests/run.php
+
+      - name: Set up Node (لاختبارات خادم التطوير)
         if: ${{ inputs.run_tests == 'true' }}
         uses: actions/setup-node@v4
         with:
@@ -56,7 +69,7 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
 
-      - name: اختبارات الخادم
+      - name: اختبارات الخادم (Node — للتطوير المحلي)
         if: ${{ inputs.run_tests == 'true' }}
         working-directory: server
         env:
