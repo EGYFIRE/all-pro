@@ -49,10 +49,14 @@ jobs:
             exit 1
           fi
 
-          # الأحدث أولًا، عشان "احتفظ بآخر N" تبقى مفهومة بالترتيب ده.
-          gh release list --repo "$REPO" --limit 200 --json tagName,createdAt \
-            --jq "[.[] | select(.tagName | startswith(\"$PREFIX\"))]
-                  | sort_by(.createdAt) | reverse | .[].tagName" > tags.txt
+          # الأحدث أولًا — بترتيب رقم الإصدار (id) لأنه تصاعدي دائمًا.
+          #
+          # لا تستعمل createdAt هنا: هو تاريخ الـ commit الذي يشير إليه التاج، وكل التاجات
+          # هنا تشير إلى نفس الـ commit تقريبًا، فيخرج الترتيب عشوائيًا و"احتفظ بأحدث N"
+          # تُبقي إصدارًا قديمًا وتمسح ملفات الأحدث.
+          gh api "repos/$REPO/releases?per_page=100" --paginate \
+            --jq "[.[] | select(.tag_name | startswith(\"$PREFIX\"))]
+                  | sort_by(.id) | reverse | .[].tag_name" > tags.txt
 
           count=$(wc -l < tags.txt | tr -d ' ')
           if [ "$count" = "0" ]; then
