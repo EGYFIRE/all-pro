@@ -131,5 +131,8 @@ jobs:
           body_path: release-body.md
           files: dist/*
           fail_on_unmatched_files: true
+          # مسوّدة: الملفات لا تظهر لأحد إلا لأصحاب صلاحية الكتابة على الريبو.
+          # الريبو عام ليأخذ دقائق Actions المجانية، لا لينشر النسخ للعامة.
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

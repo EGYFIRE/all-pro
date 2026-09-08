@@ -1,0 +1,84 @@
+name: حماية الإصدارات (إخفاء وتنظيف)
+
+# الريبو ده عام عشان دقائق Actions المجانية، مش عشان النسخ تكون متاحة للكل.
+# الـ workflow ده بيحوّل إصدارات مشروع معيّن لمسوّدات (ما تظهرش إلا لصاحب الريبو)،
+# ويقدر كمان يمسح ملفات الإصدارات الأقدم عشان ما تفضلش متاحة بروابطها القديمة.
+#
+# التشغيل: Actions ← حماية الإصدارات ← Run workflow، وحدّد بادئة التاج.
+
+on:
+  workflow_dispatch:
+    inputs:
+      prefix:
+        description: "بادئة التاج — qutoof- أو apk-v أو build-"
+        required: true
+        type: string
+      mode:
+        description: "draft = إخفاء فقط · purge = إخفاء + مسح ملفات الإصدارات الأقدم"
+        required: true
+        default: draft
+        type: choice
+        options:
+          - draft
+          - purge
+      keep:
+        description: "كم إصدارًا أحدث تحتفظ بملفاته (مع purge)"
+        required: false
+        default: "1"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: إخفاء الإصدارات وتنظيف ملفاتها
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PREFIX: ${{ inputs.prefix }}
+          MODE: ${{ inputs.mode }}
+          KEEP: ${{ inputs.keep }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PREFIX// }" ]; then
+            echo "::error::لازم تحدّد بادئة التاج."
+            exit 1
+          fi
+
+          # الأحدث أولًا، عشان "احتفظ بآخر N" تبقى مفهومة بالترتيب ده.
+          gh release list --repo "$REPO" --limit 200 --json tagName,createdAt \
+            --jq "[.[] | select(.tagName | startswith(\"$PREFIX\"))]
+                  | sort_by(.createdAt) | reverse | .[].tagName" > tags.txt
+
+          count=$(wc -l < tags.txt | tr -d ' ')
+          if [ "$count" = "0" ]; then
+            echo "::warning::لا توجد إصدارات ببادئة $PREFIX"
+            exit 0
+          fi
+          echo "عدد الإصدارات المطابقة: $count"
+
+          index=0
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            index=$((index + 1))
+
+            gh release edit "$tag" --repo "$REPO" --draft=true >/dev/null
+            echo "✅ $tag — صار مسوّدة"
+
+            if [ "$MODE" = "purge" ] && [ "$index" -gt "$KEEP" ]; then
+              gh release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' \
+                | while IFS= read -r asset; do
+                    [ -n "$asset" ] || continue
+                    gh release delete-asset "$tag" "$asset" --repo "$REPO" --yes
+                    echo "   🗑️  اتمسح: $asset"
+                  done
+            fi
+          done < tags.txt
+
+          echo
+          echo "الحالة بعد التنفيذ:"
+          gh release list --repo "$REPO" --limit 200
