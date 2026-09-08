@@ -206,5 +206,8 @@ jobs:
           body_path: release-body.md
           files: dist/*
           fail_on_unmatched_files: true
+          # مسوّدة: الريبو عام ليأخذ دقائق Actions المجانية، لا لينشر النسخ للعامة.
+          # الملفات لا يراها ولا يحمّلها إلا صاحب الريبو وهو مسجّل دخول.
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

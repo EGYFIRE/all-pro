@@ -56,5 +56,8 @@ jobs:
           body: "تحميل مباشر لتطبيق كابتن الصالة (أندرويد). ثبّته على تابلت/موبايل الكابتن، وسجّل دخول بنفس بيانات الربط السحابي المُفعّلة من برنامج الكاشير."
           files: android-captain/app/build/outputs/apk/debug/كابتن-الصالة.apk
           fail_on_unmatched_files: true
+          # مسوّدة: الريبو عام ليأخذ دقائق Actions المجانية، لا لينشر النسخ للعامة.
+          # الملفات لا يراها ولا يحمّلها إلا صاحب الريبو وهو مسجّل دخول.
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
