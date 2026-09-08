@@ -17,6 +17,7 @@
 | كاشير المطعم (Windows) | `build-windows.yml` | `build-…` | `EGYFIRE/App-exe-pc` |
 | كابتن الصالة (Android) | `build-android.yml` | `apk-v0.1.…` | `EGYFIRE/App-exe-pc` |
 | قُطوف — فيديوهات قصيرة إسلامية (Android) | `qutoof-android.yml` | `qutoof-v…` | `EGYFIRE/Short-video` |
+| ميعاد — إدارة الدروس الخصوصية (Android + Web) | `miaad-android.yml` | `miaad-v…` | `EGYFIRE/teacher` |
 
 ## تحميل آخر نسخة
 

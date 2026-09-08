@@ -1,0 +1,194 @@
+name: Build Android APK (ميعاد)
+
+# السورس خاص في EGYFIRE/teacher ولا يُبنى هناك أبدًا: الريبوهات الخاصة تشترك في
+# 2000 دقيقة شهريًا فقط. البناء يتم هنا (ريبو عام = دقائق مجانية غير محدودة)، والناتج
+# يُنشر كـ Release على هذا الريبو بتاج يبدأ بـ miaad-.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع أو الكوميت في الريبو الخاص المطلوب بناؤه"
+        required: false
+        default: "claude/classroom-management-app-2cox5b"
+      run_tests:
+        description: "تشغيل الفحوصات (تحليل + اختبارات + هجرات SQL + دوال الحافة) قبل البناء"
+        required: false
+        default: "true"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: بناء ونشر ميعاد
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    # اختبارات العزل الأمني بتتنفّذ على بوستجرس حقيقي بنفس ملفات الهجرة اللي
+    # بتروح للسيرفر — نسخة مقلّدة كانت هتنسى تتحدّث.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/teacher
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # ── الفحوصات ────────────────────────────────────────────────────────
+      - name: فحص التنسيق
+        if: ${{ inputs.run_tests == 'true' }}
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: التحليل الساكن
+        if: ${{ inputs.run_tests == 'true' }}
+        run: flutter analyze
+
+      - name: اختبارات التطبيق
+        if: ${{ inputs.run_tests == 'true' }}
+        run: flutter test --reporter expanded
+
+      - name: تثبيت psql
+        if: ${{ inputs.run_tests == 'true' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: هجرات + اختبارات SQL
+        if: ${{ inputs.run_tests == 'true' }}
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: bash supabase/tests/run_local.sh
+
+      - name: Set up Deno
+        if: ${{ inputs.run_tests == 'true' }}
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: فحص دوال الحافة
+        if: ${{ inputs.run_tests == 'true' }}
+        working-directory: supabase/functions
+        run: |
+          deno check dispatch-reminders/index.ts dispatch-messages/index.ts \
+                     dispatch-checks/index.ts weekly-digest/index.ts sweep/index.ts
+          deno lint
+          deno fmt --check
+          deno test
+
+      # ── البناء ──────────────────────────────────────────────────────────
+      - name: قراءة رقم الإصدار من المشروع
+        id: version
+        run: |
+          VERSION=$(grep -m1 '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([^+]+).*/\1/' | tr -d '[:space:]')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=miaad-v$VERSION-b${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "بناء الإصدار $VERSION"
+
+      # لو أسرار Supabase موجودة، النسخة بتطلع موصولة بالسيرفر؛ من غيرها
+      # بتطلع بالوضع التجريبي المحلي — والاتنين نفس الكود.
+      - name: بناء APK
+        env:
+          SUPABASE_URL: ${{ secrets.MIAAD_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.MIAAD_SUPABASE_ANON_KEY }}
+        run: |
+          DEFINES=""
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            DEFINES="--dart-define=MIAAD_SUPABASE_URL=$SUPABASE_URL --dart-define=MIAAD_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY"
+            echo "mode=live" >> "$GITHUB_ENV"
+          else
+            echo "mode=demo" >> "$GITHUB_ENV"
+          fi
+          # shellcheck disable=SC2086
+          flutter build apk --release --split-per-abi $DEFINES
+
+      - name: بناء نسخة الويب
+        env:
+          SUPABASE_URL: ${{ secrets.MIAAD_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.MIAAD_SUPABASE_ANON_KEY }}
+        run: |
+          DEFINES=""
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            DEFINES="--dart-define=MIAAD_SUPABASE_URL=$SUPABASE_URL --dart-define=MIAAD_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY"
+          fi
+          # shellcheck disable=SC2086
+          flutter build web --release --no-web-resources-cdn $DEFINES
+
+      - name: تجهيز الملفات
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          # نسخة لكل معمارية: أصغر بكتير من النسخة الشاملة. اللي مش متأكد
+          # يحمّل arm64 — ده تليفون أندرويد عادي من 2018 وطالع.
+          for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+            abi=$(basename "$f" | sed -E 's/app-(.*)-release\.apk/\1/')
+            cp "$f" "dist/miaad-$VERSION-$abi.apk"
+          done
+          ( cd build/web && zip -qr "$GITHUB_WORKSPACE/dist/miaad-$VERSION-web.zip" . )
+          ( cd dist && sha256sum ./*.apk ./*.zip > SHA256SUMS.txt )
+          ls -la dist
+
+      - name: تجهيز وصف الإصدار
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          printf '## ميعاد %s\n\n' "$VERSION" > release-body.md
+          printf 'تطبيق إدارة الدروس الخصوصية — للمدرس والطالب.\n\n' >> release-body.md
+          if [ "$mode" = "live" ]; then
+            printf '**الوضع: حقيقي** — النسخة دي موصولة بسيرفر Supabase، والدخول بالموبايل وكود تأكيد.\n\n' >> release-body.md
+          else
+            printf '**الوضع: تجريبي** — البيانات على الجهاز، ومفيش إشعارات بتوصل حد تاني.\n' >> release-body.md
+            printf 'للنسخة الحقيقية ضيف السرّين `MIAAD_SUPABASE_URL` و`MIAAD_SUPABASE_ANON_KEY` هنا وأعد البناء.\n\n' >> release-body.md
+          fi
+          {
+            printf '### أنهي ملف أحمّل؟\n\n'
+            printf '- `arm64-v8a` — أي تليفون أندرويد من 2018 وطالع. **ده اللي تحمّله غالبًا.**\n'
+            printf '- `armeabi-v7a` — تليفونات أقدم.\n'
+            printf '- `x86_64` — المحاكيات بس.\n'
+            printf '- `web.zip` — نسخة الويب، ترفعها على أي استضافة ثابتة.\n\n'
+            printf -- '---\n\n'
+            printf '> الـ APK موقّع بمفتاح التصحيح (debug) — كافٍ للتجربة والتثبيت المباشر،\n'
+            printf '> ويحتاج مفتاح نشر حقيقي قبل الرفع على Google Play.\n\n'
+            printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n\n'
+            printf '_بُني من الريبو الخاص `EGYFIRE/teacher` عند `%s` — بناء رقم %s._\n' "${{ inputs.ref }}" "${{ github.run_number }}"
+          } >> release-body.md
+
+      - name: نشر الإصدار
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "ميعاد — إصدار v${{ steps.version.outputs.version }} (بناء ${{ github.run_number }})"
+          body_path: release-body.md
+          files: dist/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
