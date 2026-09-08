@@ -159,28 +159,44 @@ jobs:
           ls -la dist
 
       - name: تجهيز وصف الإصدار
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SRC_REF: ${{ inputs.ref }}
+          RUN_NO: ${{ github.run_number }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          printf '## ميعاد %s\n\n' "$VERSION" > release-body.md
-          printf 'تطبيق إدارة الدروس الخصوصية — للمدرس والطالب.\n\n' >> release-body.md
+          SUMS="$(sed 's|\./||' dist/SHA256SUMS.txt)"
+
           if [ "$mode" = "live" ]; then
-            printf '**الوضع: حقيقي** — النسخة دي موصولة بسيرفر Supabase، والدخول بالموبايل وكود تأكيد.\n\n' >> release-body.md
+            MODE_LINE='**الوضع: حقيقي** — النسخة دي موصولة بسيرفر Supabase، والدخول بالموبايل وكود تأكيد.'
           else
-            printf '**الوضع: تجريبي** — البيانات على الجهاز، ومفيش إشعارات بتوصل حد تاني.\n' >> release-body.md
-            printf 'للنسخة الحقيقية ضيف السرّين `MIAAD_SUPABASE_URL` و`MIAAD_SUPABASE_ANON_KEY` هنا وأعد البناء.\n\n' >> release-body.md
+            MODE_LINE='**الوضع: تجريبي** — البيانات على الجهاز، ومفيش إشعارات بتوصل حد تاني. للنسخة الحقيقية ضيف السرّين `MIAAD_SUPABASE_URL` و`MIAAD_SUPABASE_ANON_KEY` في أسرار هذا الريبو وأعد البناء.'
           fi
+
+          # النص الثابت جوّه heredoc مقفول: فيه backticks وشرطات، وأي منها
+          # بيتفهم غلط لو عدّى على printf.
           {
-            printf '### أنهي ملف أحمّل؟\n\n'
-            printf '- `arm64-v8a` — أي تليفون أندرويد من 2018 وطالع. **ده اللي تحمّله غالبًا.**\n'
-            printf '- `armeabi-v7a` — تليفونات أقدم.\n'
-            printf '- `x86_64` — المحاكيات بس.\n'
-            printf '- `web.zip` — نسخة الويب، ترفعها على أي استضافة ثابتة.\n\n'
-            printf -- '---\n\n'
-            printf '> الـ APK موقّع بمفتاح التصحيح (debug) — كافٍ للتجربة والتثبيت المباشر،\n'
-            printf '> ويحتاج مفتاح نشر حقيقي قبل الرفع على Google Play.\n\n'
-            printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n\n'
-            printf '_بُني من الريبو الخاص `EGYFIRE/teacher` عند `%s` — بناء رقم %s._\n' "${{ inputs.ref }}" "${{ github.run_number }}"
-          } >> release-body.md
+            printf '## ميعاد %s\n\n' "$VERSION"
+            printf 'تطبيق إدارة الدروس الخصوصية — للمدرس والطالب.\n\n'
+            printf '%s\n\n' "$MODE_LINE"
+            cat <<'BODY'
+          ### أنهي ملف أحمّل؟
+
+          - `arm64-v8a` — أي تليفون أندرويد من 2018 وطالع. **ده اللي تحمّله غالبًا.**
+          - `armeabi-v7a` — تليفونات أقدم.
+          - `x86_64` — المحاكيات بس.
+          - `web.zip` — نسخة الويب، فُكّها على أي استضافة ثابتة.
+
+          ---
+
+          > الـ APK موقّع بمفتاح التصحيح (debug) — كافٍ للتجربة والتثبيت المباشر،
+          > ويحتاج مفتاح نشر حقيقي قبل الرفع على Google Play.
+
+          BODY
+            printf '```\n%s\n```\n\n' "$SUMS"
+            printf '_بُني من الريبو الخاص `EGYFIRE/teacher` عند `%s` — بناء رقم %s._\n' "$SRC_REF" "$RUN_NO"
+          } > release-body.md
+
+          cat release-body.md
 
       - name: نشر الإصدار
         uses: softprops/action-gh-release@v2
