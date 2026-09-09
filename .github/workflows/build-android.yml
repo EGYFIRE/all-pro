@@ -52,7 +52,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-v0.1.${{ github.run_number }}
-          name: "تطبيق كابتن الصالة - إصدار v0.1.${{ github.run_number }}"
+          name: "Apaza كابتن الصالة - إصدار v0.1.${{ github.run_number }}"
           body: "تحميل مباشر لتطبيق كابتن الصالة (أندرويد). ثبّته على تابلت/موبايل الكابتن، وسجّل دخول بنفس بيانات الربط السحابي المُفعّلة من برنامج الكاشير."
           files: android-captain/app/build/outputs/apk/debug/كابتن-الصالة.apk
           fail_on_unmatched_files: true
