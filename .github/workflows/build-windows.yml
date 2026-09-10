@@ -36,7 +36,7 @@ jobs:
       - name: Create GitHub Release with EXE files
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
+          tag_name: build-${{ github.run_id }}
           name: "Apaza - بناء رقم ${{ github.run_number }}"
           body: "تحميل مباشر لملف تثبيت الكاشير (Setup) والنسخة المحمولة لويندوز."
           files: |
