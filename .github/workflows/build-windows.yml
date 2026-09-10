@@ -30,6 +30,25 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # ⚠️ رقم الإصدار في package.json ثابت (0.9.0) ومابيتغيّرش مع كل بناء،
+      # فمكانش فيه أي طريقة يعرف بيها المستخدم أنهي نسخة شغّالة عنده. الملف
+      # ده بيتحفر هنا وبيظهر في شاشة الإعدادات كـ"رقم البناء".
+      # (بنكتب ملف بيانات منفصل بدل ما نلمس version في package.json - لمس
+      # version بصيغة زي "0.9.0+build.24" ممكن يكسر مثبّت NSIS اللي بيحتاج
+      # نسخة رقمية بحتة.)
+      - name: Stamp build info
+        run: |
+          node -e "
+            const fs=require('fs');
+            fs.writeFileSync('electron/build-info.json', JSON.stringify({
+              buildNumber: process.env.RUN_NUMBER,
+              builtAt: new Date().toISOString().slice(0,16).replace('T',' ') + ' UTC'
+            }, null, 2));
+            console.log(fs.readFileSync('electron/build-info.json','utf8'));
+          "
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+
       - name: Build Windows installer + portable exe
         run: npx electron-builder --win nsis portable --publish never
 
