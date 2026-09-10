@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "الفرع أو الكوميت في الريبو الخاص المطلوب بناؤه"
-        required: false
-        default: "claude/restaurant-pos-professional-m6lnq1"
+        # ⚠️⚠️ الافتراضي ده تسبب في مشكلة خطيرة: كل بناء اتعمل من غير ما
+        # يتبعت ref صراحةً كان بيبني الفرع ده - يعني ٦٩ commit من الشغل
+        # الفعلي مكانوش في أي نسخة اتبعتت للمستخدم، وهو شايف واجهة قديمة
+        # ومصدّق إن التحديثات مش شغّالة. **ابعت ref صراحةً دايماً.**
+        description: "الفرع أو الكوميت في الريبو الخاص المطلوب بناؤه - ابعته صراحةً!"
+        required: true
+        default: "claude/handover-docs-review-iuxuyy"
 
 permissions:
   contents: write
