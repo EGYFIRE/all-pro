@@ -30,6 +30,25 @@ jobs:
     timeout-minutes: 45
 
     steps:
+      # الفحص قبل أي حاجة تانية.
+      #
+      # كان بعد الـcheckout و JDK و Android SDK و Flutter والاختبارات — يعني
+      # سبع دقايق شغل قبل ما يكتشف إن السر ناقص. الفحص اللي بيتأخر بيكلّف
+      # نفس الوقت اللي هو موجود عشان يوفّره.
+      - name: التأكد من مفتاح التوقيع
+        env:
+          KEYSTORE_B64: ${{ secrets.MASRAH_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MASRAH_KEYSTORE_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$KEYSTORE_B64" ]      && missing="$missing MASRAH_KEYSTORE_B64"
+          [ -z "$KEYSTORE_PASSWORD" ] && missing="$missing MASRAH_KEYSTORE_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::أسرار ناقصة:$missing — من غيرها كل بناء بيطلع بتوقيع مختلف، واللاعب مايقدرش يحدّث النسخة اللي عنده من غير ما يمسحها."
+            exit 1
+          fi
+          echo "المفتاح موجود."
+
       - name: Checkout source (private repo)
         uses: actions/checkout@v4
         with:
@@ -84,7 +103,7 @@ jobs:
           echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "بناء الإصدار $VERSION"
 
-      # مفتاح التوقيع الثابت.
+      # فك المفتاح قبل البناء.
       #
       # قبل كده البناء كان بيوقّع بمفتاح الـdebug، والرَنَر بيعمل واحد جديد كل
       # مرة — فكل نسخة بتطلع ببصمة مختلفة. النتيجة إن أندرويد بيرفض يحدّث
