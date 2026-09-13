@@ -97,7 +97,10 @@ jobs:
       - name: تحديد رقم الإصدار
         id: version
         run: |
-          VERSION="1.0.${{ github.run_number }}"
+          # أقل من ١ بقصد: النسخة الأولى على Google Play هي اللي تبقى ١٫٠،
+          # واللي قبلها كلها تجارب. عدّاد التشغيل هو رقم البناء، فكل APK له
+          # رقم أعلى من اللي قبله ومحدش بيلخبط.
+          VERSION="0.0.${{ github.run_number }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=masrah-v$VERSION-b${{ github.run_number }}" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
