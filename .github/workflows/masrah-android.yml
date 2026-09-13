@@ -132,6 +132,18 @@ jobs:
           MASRAH_KEYSTORE_PASSWORD: ${{ secrets.MASRAH_KEYSTORE_PASSWORD }}
           MASRAH_KEY_ALIAS: masrah
         run: |
+          # نسختين بقصد.
+          #
+          # النسخة الموحّدة جوّاها مكتبات تلات معماريات (arm64 و arm و x86_64)،
+          # وهي اللي مطلّعة الملف ٦١ ميجا — والتليفون مش هيشغّل منهم غير
+          # واحدة. تليفون مساحته ضيّقة بيرفض التثبيت، ورسالة أندرويد ساعتها
+          # مابتقولش السبب، واللي بيحصل إن اللاعب بيفتكر النسخة بايظة.
+          #
+          # فـ arm64 هي اللي بتتحط أول الإصدار: بتغطّي أي تليفون من ٢٠١٦
+          # وطالع، وحجمها حوالي النص. والموحّدة بتفضل تحتها لأي حالة غريبة.
+          flutter build apk --release --split-per-abi \
+            --build-name "${{ steps.version.outputs.version }}" \
+            --build-number "${{ github.run_number }}"
           flutter build apk --release \
             --build-name "${{ steps.version.outputs.version }}" \
             --build-number "${{ github.run_number }}"
@@ -145,11 +157,21 @@ jobs:
             | grep -i "SHA-256" || true
 
       - name: تجهيز الملفات
+        id: files
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          OUT=apps/mobile/build/app/outputs/flutter-apk
           mkdir -p dist
-          cp apps/mobile/build/app/outputs/flutter-apk/app-release.apk "dist/masrah-$VERSION.apk"
+          cp "$OUT/app-arm64-v8a-release.apk"   "dist/masrah-$VERSION-arm64.apk"
+          cp "$OUT/app-armeabi-v7a-release.apk" "dist/masrah-$VERSION-arm32.apk"
+          cp "$OUT/app-release.apk"             "dist/masrah-$VERSION-all.apk"
           ( cd dist && sha256sum ./*.apk > SHA256SUMS.txt )
+          # الأحجام بتتكتب في وصف الإصدار: السؤال «هيحتاج كام مساحة» هو
+          # نفسه سبب فشل التثبيت، وإجابته لازم تبقى مكتوبة قبل التنزيل.
+          for k in arm64 arm32 all; do
+            size=$(du -h --apparent-size "dist/masrah-$VERSION-$k.apk" | cut -f1)
+            echo "$k=$size" >> "$GITHUB_OUTPUT"
+          done
           ls -la dist
 
       # نسخة تانية من نفس الملف كـ artifact. الإصدار مسوّدة، وتنزيل ملف من
@@ -169,9 +191,19 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           printf '## مسرح الجريمة %s\n' "$VERSION" > release-body.md
           {
-            printf '\n---\n\n### الملفات\n\n'
-            printf '> ملف APK موقّع بمفتاح التطوير (debug) — كافٍ للتجربة والتثبيت المباشر،\n'
-            printf '> ويحتاج مفتاح نشر حقيقي قبل الرفع على Google Play.\n\n'
+            printf '\n### نزّل إيه\n\n'
+            printf '**`masrah-%s-arm64.apk` (%s)** — دي اللي تاخدها. بتشتغل على أي\n' \
+              "$VERSION" "${{ steps.files.outputs.arm64 }}"
+            printf 'تليفون من ٢٠١٦ وطالع.\n\n'
+            printf '- `masrah-%s-arm32.apk` (%s) — لو التليفون قديم ورفض اللي فوق.\n' \
+              "$VERSION" "${{ steps.files.outputs.arm32 }}"
+            printf '- `masrah-%s-all.apk` (%s) — بتشتغل على أي حاجة، بس حجمها\n' \
+              "$VERSION" "${{ steps.files.outputs.all }}"
+            printf '  الضعف. خدها بس لو التانيين ما زبطوش.\n\n'
+            printf '> التحديث بيتسطّب فوق القديم من غير مسح: كل البناءات موقّعة\n'
+            printf '> بنفس مفتاح النشر. بس **لازم تفضل على نفس النوع** — اللي عنده\n'
+            printf '> arm64 يحدّث بـ arm64؛ التبديل بين نوع ونوع بيتطلب مسح وتسطيب.\n\n'
+            printf '---\n\n### الملفات\n\n'
             printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n\n'
             printf '_بُني من الريبو الخاص `EGYFIRE/Masrah` عند `%s` (`%s`) — بناء رقم %s._\n' \
               "${{ inputs.ref }}" "${{ steps.version.outputs.sha }}" "${{ github.run_number }}"
