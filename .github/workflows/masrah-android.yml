@@ -195,15 +195,15 @@ jobs:
             printf '**`masrah-%s-arm64.apk` (%s)** — دي اللي تاخدها. بتشتغل على أي\n' \
               "$VERSION" "${{ steps.files.outputs.arm64 }}"
             printf 'تليفون من ٢٠١٦ وطالع.\n\n'
-            printf '- `masrah-%s-arm32.apk` (%s) — لو التليفون قديم ورفض اللي فوق.\n' \
+            printf -- '- `masrah-%s-arm32.apk` (%s) — لو التليفون قديم ورفض اللي فوق.\n' \
               "$VERSION" "${{ steps.files.outputs.arm32 }}"
-            printf '- `masrah-%s-all.apk` (%s) — بتشتغل على أي حاجة، بس حجمها\n' \
+            printf -- '- `masrah-%s-all.apk` (%s) — بتشتغل على أي حاجة، بس حجمها\n' \
               "$VERSION" "${{ steps.files.outputs.all }}"
             printf '  الضعف. خدها بس لو التانيين ما زبطوش.\n\n'
             printf '> التحديث بيتسطّب فوق القديم من غير مسح: كل البناءات موقّعة\n'
             printf '> بنفس مفتاح النشر. بس **لازم تفضل على نفس النوع** — اللي عنده\n'
             printf '> arm64 يحدّث بـ arm64؛ التبديل بين نوع ونوع بيتطلب مسح وتسطيب.\n\n'
-            printf '---\n\n### الملفات\n\n'
+            printf -- '---\n\n### الملفات\n\n'
             printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n\n'
             printf '_بُني من الريبو الخاص `EGYFIRE/Masrah` عند `%s` (`%s`) — بناء رقم %s._\n' \
               "${{ inputs.ref }}" "${{ steps.version.outputs.sha }}" "${{ github.run_number }}"
