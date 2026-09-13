@@ -84,12 +84,43 @@ jobs:
           echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "بناء الإصدار $VERSION"
 
+      # مفتاح التوقيع الثابت.
+      #
+      # قبل كده البناء كان بيوقّع بمفتاح الـdebug، والرَنَر بيعمل واحد جديد كل
+      # مرة — فكل نسخة بتطلع ببصمة مختلفة. النتيجة إن أندرويد بيرفض يحدّث
+      # نسخة فوق نسخة توقيعها مختلف، فاللاعب بيمسح ويسطّب من أول وبيضيّع
+      # بياناته؛ و App Links مستحيلة لأنها متعلّقة بالبصمة.
+      - name: تجهيز مفتاح التوقيع
+        id: keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.MASRAH_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::سر MASRAH_KEYSTORE_B64 مش موجود — من غيره كل بناء"\
+                 " بيطلع بتوقيع مختلف، واللاعب مايقدرش يحدّث النسخة اللي عنده."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/masrah.jks"
+          echo "path=$RUNNER_TEMP/masrah.jks" >> "$GITHUB_OUTPUT"
+
       - name: بناء APK
         working-directory: apps/mobile
+        env:
+          MASRAH_KEYSTORE: ${{ steps.keystore.outputs.path }}
+          MASRAH_KEYSTORE_PASSWORD: ${{ secrets.MASRAH_KEYSTORE_PASSWORD }}
+          MASRAH_KEY_ALIAS: masrah
         run: |
           flutter build apk --release \
             --build-name "${{ steps.version.outputs.version }}" \
             --build-number "${{ github.run_number }}"
+
+      # البصمة بتتطبع في كل بناء عشان تتقارن باللي في assetlinks.json من غير
+      # ما حد يفك الـAPK بإيده.
+      - name: بصمة التوقيع
+        run: |
+          APK=apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK" \
+            | grep -i "SHA-256" || true
 
       - name: تجهيز الملفات
         run: |
