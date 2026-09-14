@@ -40,6 +40,22 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri -> target
 
+      # أول بناء فشل لأن مجلد الواجهة كان اسمه dist فطابق قاعدة في .gitignore
+      # ولم يُرفع إلى الريبو أصلاً. البناء المحلي نجح لأن الملفات على قرص
+      # المطوّر، والفشل ظهر هنا فقط — برسالة panic من ماكرو لا تقول السبب.
+      # هذه الخطوة تمسكها مبكراً برسالة مفهومة.
+      - name: Verify the interface is present
+        shell: pwsh
+        run: |
+          $ui = "apps/desktop/ui"
+          foreach ($f in @("index.html", "app.css", "app.js")) {
+            if (-not (Test-Path "$ui/$f")) {
+              Write-Host "::error::ملف الواجهة $ui/$f غير موجود في الريبو. تأكد أنه ليس مستبعداً في .gitignore."
+              exit 1
+            }
+          }
+          Write-Host "ملفات الواجهة موجودة."
+
       # الواجهة ملفات ثابتة تُدمَج داخل الملف التنفيذي وقت الترجمة، فلا حاجة
       # إلى Node ولا إلى خطوة بناء أمامية ولا إلى مثبّت منفصل: الناتج ملف
       # واحد يعمل بالنقر المزدوج.
