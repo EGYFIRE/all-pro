@@ -1,0 +1,116 @@
+name: Build Windows EXE (صابر — نظام إدارة المتاجر)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        # ⚠️ لا تعتمد على القيمة الافتراضية. حصل في build-windows.yml أن بناءً
+        # اعتمد عليها فأنتج نسخة أقدم بـ٦٩ كوميت، وظل المستخدم يبلّغ عن عيوب
+        # مُصلَحة وهو يرى واجهة قديمة. **اكتب الفرع صراحةً في كل تشغيل.**
+        description: "الفرع أو الكوميت في EGYFIRE/Aswaq-exe — اكتبه صراحةً!"
+        required: true
+        default: "claude/analyze-exe-competition-qsw28d"
+
+permissions:
+  contents: write
+
+# بناءان متزامنان للمشروع نفسه يهدران الوقت ويربكان ترقيم الإصدارات.
+concurrency:
+  group: saber-windows
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/Aswaq-exe
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      # الواجهة ملفات ثابتة تُدمَج داخل الملف التنفيذي وقت الترجمة، فلا حاجة
+      # إلى Node ولا إلى خطوة بناء أمامية ولا إلى مثبّت منفصل: الناتج ملف
+      # واحد يعمل بالنقر المزدوج.
+      #
+      # SABER_BUILD يُحفر داخل التطبيق ويظهر تحت الاسم، فيعرف المستخدم أي
+      # نسخة تعمل عنده بدل أن يخمّن.
+      - name: Build Windows executable
+        working-directory: apps/desktop/src-tauri
+        env:
+          SABER_BUILD: ${{ github.run_number }}
+        run: cargo build --release --bin saber-desktop
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = "release"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "apps/desktop/src-tauri/target/release/saber-desktop.exe" "$out/Saber.exe"
+          $mb = [math]::Round((Get-Item "$out/Saber.exe").Length / 1MB, 1)
+          Write-Host "حجم الملف: $mb MB"
+
+          $readme = @"
+          صابر — نظام إدارة المتاجر
+          =========================
+          بناء رقم ${{ github.run_number }} · ${{ github.sha }}
+
+          التشغيل
+          -------
+          انقر مرتين على Saber.exe — لا يحتاج تثبيت ولا إنترنت.
+
+          المتطلبات
+          ---------
+          ويندوز 10 أو 11 (64-بت). يستخدم WebView2 المثبّت أصلاً مع ويندوز
+          10 و11. إن لم يفتح على نسخة قديمة، ثبّت مجاناً:
+          Microsoft Edge WebView2 Runtime.
+
+          ماذا يعمل
+          ---------
+          - لوحة تحكم: مبيعات اليوم والربح وأصناف تحتاج طلب وعملاء متأخرون
+          - نقطة بيع: بحث بالباركود، إضافة أصناف، تعديل كميات، نقدي/شبكة/آجل
+          - ضريبة القيمة المضافة تُحسب في محرّك Rust لا في الواجهة، والتقريب
+            على مستوى السطر كما تتطلب هيئة الزكاة والضريبة والجمارك
+          - إيصال ضريبي مبسّط ومعه القيد المزدوج الذي أنتجته الفاتورة
+          - سمة ليلية ونهارية
+
+          ما لم يُبنَ بعد
+          ---------------
+          البيانات في الذاكرة وتضيع عند الإغلاق — قاعدة البيانات هي الخطوة
+          التالية. الأصناف وأرقام اللوحة تجريبية.
+          "@
+          [System.IO.File]::WriteAllText("$out/اقرأني.txt", $readme, [System.Text.UTF8Encoding]::new($true))
+
+          Compress-Archive -Path "$out/*" -DestinationPath "Saber-Windows.zip" -Force
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: saber-${{ github.run_id }}
+          name: "صابر — بناء رقم ${{ github.run_number }}"
+          body: |
+            نظام إدارة المتاجر لويندوز 64-بت.
+
+            **التشغيل:** فك ضغط `Saber-Windows.zip` ثم انقر مرتين على `Saber.exe`.
+            لا يحتاج تثبيت ولا إنترنت.
+
+            المصدر: `EGYFIRE/Aswaq-exe@${{ inputs.ref }}`
+            الالتزام: `${{ github.sha }}`
+          files: Saber-Windows.zip
+          fail_on_unmatched_files: true
+          # مسوّدة: الريبو عام ليأخذ دقائق Actions المجانية، لا لينشر النسخ للعامة.
+          # الملفات لا يراها ولا يحمّلها إلا صاحب الريبو وهو مسجّل دخول.
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
