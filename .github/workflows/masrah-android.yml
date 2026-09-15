@@ -69,8 +69,20 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # `packages: ''` مقصودة.
+      #
+      # الافتراضي في الـaction هو `tools platform-tools`، و«tools» دي حزمة
+      # جوجل شالتها من المستودع — فالـaction بقى بيقع بـ«Failed to find
+      # package 'tools'» من غير ما حاجة في المشروع تتغيّر. (بناء ٤٠ عدّى،
+      # وبناء ٤١ وقع على نفس الكود تقريبًا.)
+      #
+      # والصورة بتاعة الرَنَر فيها الـSDK متسطّب أصلًا، وFlutter وGradle
+      # بينزّلوا اللي ناقصهم. فالخطوة دي مالهاش لازمة غير إنها تظبط
+      # ANDROID_HOME.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
