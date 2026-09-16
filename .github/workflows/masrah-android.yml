@@ -19,6 +19,10 @@ on:
         description: "تشغيل التحليل والاختبارات قبل البناء"
         required: false
         default: "true"
+      all_abis:
+        description: "كل المعماريات (arm32 والموحّدة كمان) — أبطأ بكتير"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -77,7 +81,7 @@ jobs:
       # وبناء ٤١ وقع على نفس الكود تقريبًا.)
       #
       # والصورة بتاعة الرَنَر فيها الـSDK متسطّب أصلًا، وFlutter وGradle
-      # بينزّلوا اللي ناقصهم. فالخطوة دي مالهاش لازمة غير إنها تظبط
+      # بينزّلوا اللي ناقصهم. فالخطوة دي مالهاش لازم غير إنها تظبط
       # ANDROID_HOME.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -143,46 +147,61 @@ jobs:
           MASRAH_KEYSTORE: ${{ steps.keystore.outputs.path }}
           MASRAH_KEYSTORE_PASSWORD: ${{ secrets.MASRAH_KEYSTORE_PASSWORD }}
           MASRAH_KEY_ALIAS: masrah
+          ALL_ABIS: ${{ inputs.all_abis }}
         run: |
-          # نسختين بقصد.
+          # **arm64 وبس، افتراضيًا.**
           #
-          # النسخة الموحّدة جوّاها مكتبات تلات معماريات (arm64 و arm و x86_64)،
-          # وهي اللي مطلّعة الملف ٦١ ميجا — والتليفون مش هيشغّل منهم غير
-          # واحدة. تليفون مساحته ضيّقة بيرفض التثبيت، ورسالة أندرويد ساعتها
-          # مابتقولش السبب، واللي بيحصل إن اللاعب بيفتكر النسخة بايظة.
+          # الخطوة دي كانت بتشغّل بناءين: `--split-per-abi` بيترجم Dart
+          # لتلات معماريات (arm64 و arm32 و x86_64)، والموحّد بعده **بيترجم
+          # نفس التلاتة تاني** ويلزقهم في ملف واحد. يعني ست ترجمات AOT،
+          # واللي بينزل منهم واحدة.
           #
-          # فـ arm64 هي اللي بتتحط أول الإصدار: بتغطّي أي تليفون من ٢٠١٦
-          # وطالع، وحجمها حوالي النص. والموحّدة بتفضل تحتها لأي حالة غريبة.
-          flutter build apk --release --split-per-abi \
-            --build-name "${{ steps.version.outputs.version }}" \
-            --build-number "${{ github.run_number }}"
-          flutter build apk --release \
-            --build-name "${{ steps.version.outputs.version }}" \
-            --build-number "${{ github.run_number }}"
+          # arm64 بتغطّي أي تليفون من ٢٠١٦ وطالع. والباقي بيتعمل بس لو حد
+          # علّم `all_abis` وهو بيشغّل — من غير ما حد يعدّل الملف ده.
+          NAME="${{ steps.version.outputs.version }}"
+          NUM="${{ github.run_number }}"
+
+          if [ "$ALL_ABIS" = "true" ]; then
+            echo "كل المعماريات — ده هياخد وقت."
+            flutter build apk --release --split-per-abi \
+              --build-name "$NAME" --build-number "$NUM"
+            flutter build apk --release \
+              --build-name "$NAME" --build-number "$NUM"
+          else
+            flutter build apk --release --split-per-abi \
+              --target-platform android-arm64 \
+              --build-name "$NAME" --build-number "$NUM"
+          fi
 
       # البصمة بتتطبع في كل بناء عشان تتقارن باللي في assetlinks.json من غير
-      # ما حد يفك الـAPK بإيده.
+      # ما حد يفك الـAPK بإيده. و arm64 هي الموجودة دايمًا، فالبصمة بتتاخد
+      # منها — الموحّدة ممكن تكون مش متعمولة أصلًا.
       - name: بصمة التوقيع
         run: |
-          APK=apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          APK=apps/mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK" \
             | grep -i "SHA-256" || true
 
       - name: تجهيز الملفات
         id: files
+        env:
+          ALL_ABIS: ${{ inputs.all_abis }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           OUT=apps/mobile/build/app/outputs/flutter-apk
           mkdir -p dist
-          cp "$OUT/app-arm64-v8a-release.apk"   "dist/masrah-$VERSION-arm64.apk"
-          cp "$OUT/app-armeabi-v7a-release.apk" "dist/masrah-$VERSION-arm32.apk"
-          cp "$OUT/app-release.apk"             "dist/masrah-$VERSION-all.apk"
+          cp "$OUT/app-arm64-v8a-release.apk" "dist/masrah-$VERSION-arm64.apk"
+          if [ "$ALL_ABIS" = "true" ]; then
+            cp "$OUT/app-armeabi-v7a-release.apk" "dist/masrah-$VERSION-arm32.apk"
+            cp "$OUT/app-release.apk"             "dist/masrah-$VERSION-all.apk"
+          fi
           ( cd dist && sha256sum ./*.apk > SHA256SUMS.txt )
           # الأحجام بتتكتب في وصف الإصدار: السؤال «هيحتاج كام مساحة» هو
           # نفسه سبب فشل التثبيت، وإجابته لازم تبقى مكتوبة قبل التنزيل.
           for k in arm64 arm32 all; do
-            size=$(du -h --apparent-size "dist/masrah-$VERSION-$k.apk" | cut -f1)
-            echo "$k=$size" >> "$GITHUB_OUTPUT"
+            f="dist/masrah-$VERSION-$k.apk"
+            [ -f "$f" ] || continue
+            echo "$k=$(du -h --apparent-size "$f" | cut -f1)" >> "$GITHUB_OUTPUT"
           done
           ls -la dist
 
@@ -199,6 +218,8 @@ jobs:
           if-no-files-found: error
 
       - name: تجهيز وصف الإصدار
+        env:
+          ALL_ABIS: ${{ inputs.all_abis }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           printf '## مسرح الجريمة %s\n' "$VERSION" > release-body.md
@@ -207,11 +228,16 @@ jobs:
             printf '**`masrah-%s-arm64.apk` (%s)** — دي اللي تاخدها. بتشتغل على أي\n' \
               "$VERSION" "${{ steps.files.outputs.arm64 }}"
             printf 'تليفون من ٢٠١٦ وطالع.\n\n'
-            printf -- '- `masrah-%s-arm32.apk` (%s) — لو التليفون قديم ورفض اللي فوق.\n' \
-              "$VERSION" "${{ steps.files.outputs.arm32 }}"
-            printf -- '- `masrah-%s-all.apk` (%s) — بتشتغل على أي حاجة، بس حجمها\n' \
-              "$VERSION" "${{ steps.files.outputs.all }}"
-            printf '  الضعف. خدها بس لو التانيين ما زبطوش.\n\n'
+            if [ "$ALL_ABIS" = "true" ]; then
+              printf -- '- `masrah-%s-arm32.apk` (%s) — لو التليفون قديم ورفض اللي فوق.\n' \
+                "$VERSION" "${{ steps.files.outputs.arm32 }}"
+              printf -- '- `masrah-%s-all.apk` (%s) — بتشتغل على أي حاجة، بس حجمها\n' \
+                "$VERSION" "${{ steps.files.outputs.all }}"
+              printf '  الضعف. خدها بس لو التانيين ما زبطوش.\n\n'
+            else
+              printf '> البناء ده طلّع arm64 وبس — ده اللي بيخلّيه أسرع. لو احتجت\n'
+              printf '> arm32 أو الموحّدة، علّم **كل المعماريات** وإنت بتشغّل.\n\n'
+            fi
             printf '> التحديث بيتسطّب فوق القديم من غير مسح: كل البناءات موقّعة\n'
             printf '> بنفس مفتاح النشر. بس **لازم تفضل على نفس النوع** — اللي عنده\n'
             printf '> arm64 يحدّث بـ arm64؛ التبديل بين نوع ونوع بيتطلب مسح وتسطيب.\n\n'
