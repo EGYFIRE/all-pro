@@ -94,12 +94,17 @@ jobs:
           echo "بناء الإصدار $VERSION"
 
       # نسخة debug بلا تصغير كود: حين تنهار نسخة release وحدها يكون السبب
-      # في قواعد R8، وهذه تثبته في دقيقة بدل ساعة تشخيص.
-      - name: بناء APK و AAB
+      # في قواعد R8، وهذه تثبته في دقيقة بدل ساعة تشخيص. لا تُنشر مع
+      # الإصدار بل تُرفع مرفقًا للتشغيل، فصفحة الإصدار تبقى ملفًّا للتثبيت
+      # لا سؤالًا عن أيّها يُنزَّل.
+      #
+      # ولا نبني AAB: هي صيغة متجر Google Play ولا تُثبَّت على هاتف،
+      # والمشروع لا يُنشر على المتجر.
+      - name: بناء APK
         working-directory: android
         run: |
           set -o pipefail
-          gradle --no-daemon assembleRelease bundleRelease assembleDebug 2>&1 | tee ../build-release.log || {
+          gradle --no-daemon assembleRelease assembleDebug 2>&1 | tee ../build-release.log || {
             echo "::group::أخطاء البناء"
             grep -E "^e: |FAILED|Unresolved|error:" ../build-release.log | head -60
             echo "::endgroup::"
@@ -109,18 +114,24 @@ jobs:
       - name: تجهيز الملفات
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          mkdir -p dist
+          mkdir -p dist diagnostics
           cp android/app/build/outputs/apk/release/app-release.apk "dist/ailocal-$VERSION.apk"
-          cp android/app/build/outputs/bundle/release/app-release.aab "dist/ailocal-$VERSION.aab"
           # نسخة التشخيص: معرّف تطبيق مختلف (.debug) فتُثبَّت بجوار العادية
           # دون أن تحلّ محلّها.
-          cp android/app/build/outputs/apk/debug/app-debug.apk "dist/ailocal-$VERSION-debug.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "diagnostics/ailocal-$VERSION-debug.apk"
           # حزمة الخادم: يُثبَّت على الحاسوب لا على الهاتف، فيُرفق مع الإصدار.
           ( cd server && zip -qr "../dist/ailocal-server-$VERSION.zip" . \
               -x '*.pyc' -x '__pycache__/*' -x '*/__pycache__/*' \
               -x '.venv/*' -x 'config.yaml' -x 'jobs.db*' )
-          ( cd dist && sha256sum ./*.apk ./*.aab ./*.zip > SHA256SUMS.txt )
-          ls -la dist
+          ( cd dist && sha256sum ./*.apk ./*.zip > SHA256SUMS.txt )
+          ls -la dist diagnostics
+
+      - name: رفع نسخة التشخيص مرفقًا (لا تظهر في الإصدار)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ailocal-debug-apk
+          path: diagnostics/*.apk
+          retention-days: 30
 
       - name: تجهيز وصف الإصدار
         run: |
@@ -134,9 +145,10 @@ jobs:
             printf 'وتطبيق أندرويد يتحكّم فيه عبر الشبكة المحلية.\n\n'
             printf -- '---\n\n### الملفات\n\n'
             printf '| الملف | أين يُثبَّت |\n|---|---|\n'
-            printf '| `ailocal-%s.apk` | الهاتف |\n' "$VERSION"
-            printf '| `ailocal-%s-debug.apk` | الهاتف — نسخة تشخيص بلا تصغير كود، تُثبَّت بجوار العادية |\n' "$VERSION"
-            printf '| `ailocal-server-%s.zip` | الحاسوب — فُكّه ثم `.\\install-windows.ps1` |\n\n' "$VERSION"
+            printf '| `ailocal-%s.apk` | **الهاتف** — هذا هو التطبيق |\n' "$VERSION"
+            printf '| `ailocal-server-%s.zip` | **الحاسوب** — فُكّه ثم `1-تثبيت-INSTALL.bat` |\n\n' "$VERSION"
+            printf '> نسخة التشخيص (debug) مرفوعة مرفقًا في صفحة التشغيل، لا هنا.\n'
+            printf '> لا تحتاجها إلا إن انهار التطبيق وطُلبت منك.\n\n'
             printf '> ملف APK موقّع بمفتاح التطوير (debug) — كافٍ للتجربة والتثبيت المباشر،\n'
             printf '> ويحتاج مفتاح نشر حقيقي قبل الرفع على Google Play.\n\n'
             printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n\n'
