@@ -93,11 +93,13 @@ jobs:
           echo "tag=ailocal-v$VERSION-b${{ github.run_number }}" >> "$GITHUB_OUTPUT"
           echo "بناء الإصدار $VERSION"
 
+      # نسخة debug بلا تصغير كود: حين تنهار نسخة release وحدها يكون السبب
+      # في قواعد R8، وهذه تثبته في دقيقة بدل ساعة تشخيص.
       - name: بناء APK و AAB
         working-directory: android
         run: |
           set -o pipefail
-          gradle --no-daemon assembleRelease bundleRelease 2>&1 | tee ../build-release.log || {
+          gradle --no-daemon assembleRelease bundleRelease assembleDebug 2>&1 | tee ../build-release.log || {
             echo "::group::أخطاء البناء"
             grep -E "^e: |FAILED|Unresolved|error:" ../build-release.log | head -60
             echo "::endgroup::"
@@ -110,6 +112,9 @@ jobs:
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk "dist/ailocal-$VERSION.apk"
           cp android/app/build/outputs/bundle/release/app-release.aab "dist/ailocal-$VERSION.aab"
+          # نسخة التشخيص: معرّف تطبيق مختلف (.debug) فتُثبَّت بجوار العادية
+          # دون أن تحلّ محلّها.
+          cp android/app/build/outputs/apk/debug/app-debug.apk "dist/ailocal-$VERSION-debug.apk"
           # حزمة الخادم: يُثبَّت على الحاسوب لا على الهاتف، فيُرفق مع الإصدار.
           ( cd server && zip -qr "../dist/ailocal-server-$VERSION.zip" . \
               -x '*.pyc' -x '__pycache__/*' -x '*/__pycache__/*' \
@@ -130,6 +135,7 @@ jobs:
             printf -- '---\n\n### الملفات\n\n'
             printf '| الملف | أين يُثبَّت |\n|---|---|\n'
             printf '| `ailocal-%s.apk` | الهاتف |\n' "$VERSION"
+            printf '| `ailocal-%s-debug.apk` | الهاتف — نسخة تشخيص بلا تصغير كود، تُثبَّت بجوار العادية |\n' "$VERSION"
             printf '| `ailocal-server-%s.zip` | الحاسوب — فُكّه ثم `.\\install-windows.ps1` |\n\n' "$VERSION"
             printf '> ملف APK موقّع بمفتاح التطوير (debug) — كافٍ للتجربة والتثبيت المباشر،\n'
             printf '> ويحتاج مفتاح نشر حقيقي قبل الرفع على Google Play.\n\n'
