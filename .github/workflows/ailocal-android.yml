@@ -70,10 +70,19 @@ jobs:
           python -m pytest tests/ -v
 
       # ── اختبارات التطبيق ───────────────────────────────────────────────
+      # أخطاء الترجمة تضيع وسط آلاف أسطر stack trace من Gradle؛ نلتقط
+      # السجلّ ونعيد طبع أسطر الأخطاء وحدها في النهاية.
       - name: اختبارات التطبيق
         if: ${{ inputs.run_tests == 'true' }}
         working-directory: android
-        run: gradle --no-daemon --stacktrace testDebugUnitTest
+        run: |
+          set -o pipefail
+          gradle --no-daemon testDebugUnitTest 2>&1 | tee ../build-tests.log || {
+            echo "::group::أخطاء الترجمة والاختبارات"
+            grep -E "^e: |^w: .*error|FAILED|Unresolved|expected:|actual:" ../build-tests.log | head -60
+            echo "::endgroup::"
+            exit 1
+          }
 
       # ── البناء ────────────────────────────────────────────────────────
       - name: قراءة رقم الإصدار من المشروع
@@ -86,7 +95,14 @@ jobs:
 
       - name: بناء APK و AAB
         working-directory: android
-        run: gradle --no-daemon --stacktrace assembleRelease bundleRelease
+        run: |
+          set -o pipefail
+          gradle --no-daemon assembleRelease bundleRelease 2>&1 | tee ../build-release.log || {
+            echo "::group::أخطاء البناء"
+            grep -E "^e: |FAILED|Unresolved|error:" ../build-release.log | head -60
+            echo "::endgroup::"
+            exit 1
+          }
 
       - name: تجهيز الملفات
         run: |
