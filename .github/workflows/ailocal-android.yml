@@ -69,8 +69,15 @@ jobs:
       - name: تثبيت FFmpeg وخطٍّ عربي لاختبارات المونتاج
         if: ${{ inputs.run_tests == 'true' }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-core
+          # مرآة apt تسقط أحيانًا لثوانٍ، وسقوطُها يُفشل بناءً سليمًا.
+          # ثلاث محاولات، ثم يحكم وجودُ البرنامج نفسه لا نجاحُ التثبيت.
+          for attempt in 1 2 3; do
+            sudo apt-get update -qq \
+              && sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-core \
+              && break
+            echo "المحاولة $attempt فشلت — إعادة بعد قليل"
+            sleep $((attempt * 5))
+          done
           ffmpeg -hide_banner -version | head -1
 
       - name: اختبارات الخادم
