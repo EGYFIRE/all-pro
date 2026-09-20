@@ -61,6 +61,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      # ── محرّك الفيديو ──────────────────────────────────────────────────
+      # اختباراته ترندر ملفّاتٍ فعلية، وبلا FFmpeg تتخطّى نفسها بصمت:
+      # يمرّ البناء أخضر وهو لم يفحص أهشّ ما في المشروع — رسمَ فلاتر
+      # طولُه آلاف المحارف تكفيه فاصلةٌ في غير موضعها. والخطّ العربي
+      # شرطٌ مثله: بدونه لا تُرسم كلمة.
+      - name: تثبيت FFmpeg وخطٍّ عربي لاختبارات المونتاج
+        if: ${{ inputs.run_tests == 'true' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-core
+          ffmpeg -hide_banner -version | head -1
+
       - name: اختبارات الخادم
         if: ${{ inputs.run_tests == 'true' }}
         working-directory: server
