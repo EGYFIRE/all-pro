@@ -137,12 +137,19 @@ jobs:
           if [ "${{ inputs.variant }}" = "release" ]; then TASK=assembleRelease
           else TASK=assembleDebug; fi
 
+          # أكشنز بيشغّل الـrun بـ`bash -e`، فأول ما الأنبوبة تقع السكريبت
+          # بيموت قبل ما يوصل للطباعة تحت. `set +e` بترجّع القرار لينا.
+          set +e
           gradle "$TASK" --no-daemon --stacktrace 2>&1 | tee build.log
           CODE=${PIPESTATUS[0]}
+          set -e
 
           if [ "$CODE" -ne 0 ]; then
             echo "::group::أغلاط الترجمة كلها"
-            grep -E '^e: ' build.log || echo "(مفيش سطور e: — الوقعة مش من الترجمة)"
+            if grep -E '^e: ' build.log; then :; else
+              echo "(مفيش سطور e: — الوقعة مش من الترجمة، أهو آخر السجل:)"
+              grep -vE '^\s+at |^\t' build.log | tail -40
+            fi
             echo "::endgroup::"
           fi
           exit "$CODE"
