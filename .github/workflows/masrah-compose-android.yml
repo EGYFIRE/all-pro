@@ -76,14 +76,35 @@ jobs:
           BOM=$(latest       "$G/androidx/compose/compose-bom/maven-metadata.xml")
           ACTIVITY=$(latest  "$G/androidx/activity/activity-compose/maven-metadata.xml")
           LIFECYCLE=$(latest "$G/androidx/lifecycle/lifecycle-runtime-compose/maven-metadata.xml")
-          SDK=$(ls "$ANDROID_HOME/platforms" | sed -n 's/^android-\([0-9]\+\)$/\1/p' | sort -n | tail -1)
+          # الـcompileSdk مايتحسبش من اللي **متركّب** على الرَنَر.
+          #
+          # جرّبناها وطلعت غلط: الرَنَر عنده android-36، فحطّينا ٣٦، والبناء
+          # وقع لأن مكتبات AndroidX الجديدة (lifecycle 2.11، compose ui 1.12)
+          # بتطلب ٣٧ أو أعلى. يعني رقم ChatGPT الأصلي — ٣٧ — كان صح، واللي
+          # غلط هو إننا نزّلناه.
+          #
+          # فالسؤال الصح مش «إيه المتركّب» بل «إيه المتاح»: بنسأل sdkmanager
+          # عن أعلى منصة مستقرة منشورة، وبنركّبها، وبنبني عليها.
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMGR" ]; then
+            SDK=$("$SDKMGR" --list 2>/dev/null \
+                  | grep -oE 'platforms;android-[0-9]+' \
+                  | sed 's/.*-//' | sort -n | tail -1)
+          fi
+          if [ -z "${SDK:-}" ]; then
+            SDK=$(ls "$ANDROID_HOME/platforms" | sed -n 's/^android-\([0-9]\+\)$/\1/p' | sort -n | tail -1)
+          fi
+          if [ ! -d "$ANDROID_HOME/platforms/android-$SDK" ]; then
+            echo "بركّب platforms;android-$SDK"
+            "$SDKMGR" "platforms;android-$SDK" > /dev/null
+          fi
 
           echo "AGP=$AGP"
           echo "Kotlin=$KOTLIN"
           echo "compose-bom=$BOM"
           echo "activity-compose=$ACTIVITY"
           echo "lifecycle-runtime-compose=$LIFECYCLE"
-          echo "compileSdk=$SDK   (المتركّب: $(ls "$ANDROID_HOME/platforms" | tr '\n' ' '))"
+          echo "compileSdk=$SDK   (المتركّب دلوقتي: $(ls "$ANDROID_HOME/platforms" | tr '\n' ' '))"
 
           for v in "$AGP" "$KOTLIN" "$BOM" "$ACTIVITY" "$LIFECYCLE" "$SDK"; do
             [ -n "$v" ] || { echo "::error::رقم إصدار رجع فاضي"; exit 1; }
