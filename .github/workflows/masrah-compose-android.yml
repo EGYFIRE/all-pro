@@ -56,6 +56,7 @@ jobs:
       # منشور فعلًا، وبناخد أعلى منصة **متركّبة** على الرَنَر، وبنكتبهم قبل
       # البناء. وكل رقم بيتطبع — فتشغيلة واحدة بتدّينا الأرقام الحقيقية.
       - name: أرقام إصدارات موجودة فعلًا
+        id: ver
         run: |
           set -euo pipefail
 
@@ -88,6 +89,13 @@ jobs:
             [ -n "$v" ] || { echo "::error::رقم إصدار رجع فاضي"; exit 1; }
           done
 
+          {
+            echo "agp=$AGP"
+            echo "kotlin=$KOTLIN"
+            echo "bom=$BOM"
+            echo "sdk=$SDK"
+          } >> "$GITHUB_OUTPUT"
+
           sed -i \
             -e "s|com.android.application\") version \"[^\"]*\"|com.android.application\") version \"$AGP\"|" \
             -e "s|org.jetbrains.kotlin.android\") version \"[^\"]*\"|org.jetbrains.kotlin.android\") version \"$KOTLIN\"|" \
@@ -101,6 +109,14 @@ jobs:
             -e "s|androidx.activity:activity-compose:[^\"]*|androidx.activity:activity-compose:$ACTIVITY|" \
             -e "s|androidx.lifecycle:lifecycle-runtime-compose:[^\"]*|androidx.lifecycle:lifecycle-runtime-compose:$LIFECYCLE|" \
             app/build.gradle.kts
+
+          # ومن AGP 9 كوتلن جوّه الـplugin نفسه، وتطبيق
+          # org.jetbrains.kotlin.android معاه بيوقّع البناء بالنص:
+          # «no longer required for Kotlin support since AGP 9.0».
+          if [ "${AGP%%.*}" -ge 9 ]; then
+            echo "AGP ${AGP%%.*}.x — بشيل org.jetbrains.kotlin.android"
+            sed -i '/org\.jetbrains\.kotlin\.android/d' build.gradle.kts app/build.gradle.kts
+          fi
 
           echo '--- build.gradle.kts ---';     cat build.gradle.kts
           echo '--- app/build.gradle.kts ---'; cat app/build.gradle.kts
@@ -144,8 +160,10 @@ jobs:
             * المصدر: `EGYFIRE/Masrah` فرع `${{ inputs.ref }}` — فرع يتيم،
               منفصل تمامًا عن شغل اللعبة.
             * النسخة: `${{ inputs.variant }}` · الحجم: ${{ steps.apk.outputs.size }}
-            * أرقام الإصدارات اللي اتبنى بيها مطبوعة في خطوة
-              «أرقام إصدارات موجودة فعلًا» في سجل التشغيل.
+            * اتبنى بـ AGP `${{ steps.ver.outputs.agp }}` · Kotlin
+              `${{ steps.ver.outputs.kotlin }}` · Compose BOM
+              `${{ steps.ver.outputs.bom }}` · compileSdk
+              `${{ steps.ver.outputs.sdk }}`.
 
             التطبيق الحقيقي لسه `masrah-v0.0.*`.
           files: dist/*
