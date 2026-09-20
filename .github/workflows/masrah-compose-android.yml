@@ -127,14 +127,25 @@ jobs:
         with:
           gradle-version: current
 
+      # جريدل بيطبع أغلاط الترجمة كسطور «e:» في نص السجل، وبعدين بيرمي
+      # stacktrace بميت سطر فيه غلط واحد بس. فلو البناء وقع، بنطبع سطور الـ
+      # «e:» كلها في مجموعة لوحدها — يعني كل الأغلاط تتصلّح في لفّة واحدة بدل
+      # واحدة كل تشغيلة.
       - name: بناء APK
         run: |
-          set -euo pipefail
-          if [ "${{ inputs.variant }}" = "release" ]; then
-            gradle assembleRelease --no-daemon --stacktrace
-          else
-            gradle assembleDebug --no-daemon --stacktrace
+          set -uo pipefail
+          if [ "${{ inputs.variant }}" = "release" ]; then TASK=assembleRelease
+          else TASK=assembleDebug; fi
+
+          gradle "$TASK" --no-daemon --stacktrace 2>&1 | tee build.log
+          CODE=${PIPESTATUS[0]}
+
+          if [ "$CODE" -ne 0 ]; then
+            echo "::group::أغلاط الترجمة كلها"
+            grep -E '^e: ' build.log || echo "(مفيش سطور e: — الوقعة مش من الترجمة)"
+            echo "::endgroup::"
           fi
+          exit "$CODE"
 
       - name: تجهيز الملف
         id: apk
