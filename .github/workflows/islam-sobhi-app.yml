@@ -1,7 +1,13 @@
 name: تطبيق إسلام صبحي
 
-# السورس خاص في Kartonaa/islam_sobhi_ssd_copy_v2 ولا يُبنى هناك أبدًا (الريبوهات الخاصة تشترك في 2000 دقيقة/شهر).
+# السورس خاص في EGYFIRE/islam_sobhi_ssd_copy_v2 ولا يُبنى هناك أبدًا (الريبوهات الخاصة تشترك في 2000 دقيقة/شهر).
 # البناء هنا (ريبو عام = دقائق مجانية)، والناتج Release بتاج يبدأ بـ islam-sobhi-app-.
+#
+# إعدادات المشروع كما هي في السورس (للمرجع):
+#   pubspec: sdk '>=3.1.2 <4.0.0'  →  Dart 3.x  →  Flutter 3.19.6 (مُثبّتة، وهي النسخة اللي نجح بها البناء)
+#   android/build.gradle: أسلوب plugins{} الحديث (dev.flutter.flutter-gradle-plugin)
+#   gradle-wrapper: Gradle 7.5 · compileSdk 34 · minSdk 23  →  JDK 17
+#   google-services.json موجود في السورس — لا يحتاج أي تدخل.
 
 on:
   workflow_dispatch:
@@ -11,9 +17,9 @@ on:
         required: false
         default: ""
       flutter_version:
-        description: "نسخة Flutter (فاضي = تُكتشف من المشروع)"
+        description: "نسخة Flutter"
         required: false
-        default: ""
+        default: "3.19.6"
       java_version:
         description: "نسخة Java"
         required: false
@@ -32,7 +38,7 @@ jobs:
       - name: Checkout source (private repo)
         uses: actions/checkout@v4
         with:
-          repository: Kartonaa/islam_sobhi_ssd_copy_v2
+          repository: EGYFIRE/islam_sobhi_ssd_copy_v2
           ref: ${{ inputs.ref || '' }}
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
 
@@ -57,12 +63,12 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "${{ inputs.java_version }}"
+          java-version: "${{ inputs.java_version || '17' }}"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ steps.detect.outputs.flutter }}
+          flutter-version: ${{ inputs.flutter_version || '3.19.6' }}
           channel: stable
           cache: true
 
@@ -104,10 +110,10 @@ jobs:
           {
             printf '## تطبيق إسلام صبحي — إصدار تجريبي\n\n'
             printf '> **APK موقّع بمفتاح debug** — للتجربة والتثبيت المباشر فقط، غير صالح لـ Google Play.\n\n'
-            printf -- '- المصدر: `Kartonaa/islam_sobhi_ssd_copy_v2`\n'
-            printf -- '- الفرع/المرجع: `%s`\n' "${{ inputs.ref }}"
+            printf -- '- المصدر: `EGYFIRE/islam_sobhi_ssd_copy_v2`\n'
+            printf -- '- الفرع/المرجع: `%s`\n' "${{ inputs.ref || 'الافتراضي' }}"
             printf -- '- الكوميت: `%s`\n' "$(git rev-parse HEAD)"
-            printf -- '- Flutter: `%s` · Java: `%s`\n\n' "${{ steps.detect.outputs.flutter }}" "${{ inputs.java_version }}"
+            printf -- '- Flutter: `%s` · Java: `%s`\n\n' "${{ inputs.flutter_version || '3.19.6' }}" "${{ inputs.java_version || '17' }}"
             printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n'
           } > release-body.md
 
@@ -119,6 +125,7 @@ jobs:
           body_path: release-body.md
           files: dist/*
           fail_on_unmatched_files: true
-          draft: true
+          draft: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

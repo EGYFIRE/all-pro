@@ -1,7 +1,16 @@
 name: إسلام صبحي — الأدمن
 
-# السورس خاص في Kartonaa/islam-admin ولا يُبنى هناك أبدًا (الريبوهات الخاصة تشترك في 2000 دقيقة/شهر).
+# السورس خاص في EGYFIRE/islam-admin ولا يُبنى هناك أبدًا (الريبوهات الخاصة تشترك في 2000 دقيقة/شهر).
 # البناء هنا (ريبو عام = دقائق مجانية)، والناتج Release بتاج يبدأ بـ islam-admin-.
+#
+# إعدادات المشروع كما هي في السورس (للمرجع):
+#   pubspec: sdk '>=2.18.6 <3.0.0'  →  لازم Dart 2.x  →  Flutter 3.7.12 (Dart 2.19.6)
+#   .metadata revision 135454af… (قناة stable، عائلة 3.7)
+#   android/build.gradle: AGP 7.1.2 · Kotlin 1.6.10 · google-services 4.3.15
+#   gradle-wrapper: Gradle 7.4      →  الأنسب JDK 11 (AGP 7.1 مش مدعوم رسميًا على 17)
+#   android/app/build.gradle: أسلوب قديم (apply from flutter.gradle) · compileSdk 33
+#                             minSdkVersion flutter.minSdkVersion (=16 في 3.7) → يُرفع لـ21 وقت البناء
+#   يستخدم plugin com.google.gms.google-services → محتاج google-services.json (غير موجود في الريبو)
 
 on:
   workflow_dispatch:
@@ -11,13 +20,13 @@ on:
         required: false
         default: ""
       flutter_version:
-        description: "نسخة Flutter (فاضي = تُكتشف من المشروع)"
+        description: "نسخة Flutter"
         required: false
-        default: ""
+        default: "3.7.12"
       java_version:
         description: "نسخة Java"
         required: false
-        default: "17"
+        default: "11"
 
 permissions:
   contents: write
@@ -26,49 +35,97 @@ jobs:
   build:
     name: بناء إسلام صبحي — الأدمن
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout source (private repo)
         uses: actions/checkout@v4
         with:
-          repository: Kartonaa/islam-admin
+          repository: EGYFIRE/islam-admin
           ref: ${{ inputs.ref || '' }}
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
 
-      - name: كشف إعدادات المشروع
+      - name: كشف بيانات المشروع
         id: detect
         run: |
-          echo "--- pubspec environment ---"; sed -n '/^environment:/,/^[a-z]/p' pubspec.yaml || true
-          echo "--- .metadata ---"; cat .metadata 2>/dev/null || true
-          FV="${{ inputs.flutter_version }}"
-          if [ -z "$FV" ]; then
-            FV=$(grep -E '^\s+flutter:' pubspec.yaml | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
-          fi
-          if [ -z "$FV" ]; then FV="3.19.6"; echo "لم تُحدَّد نسخة Flutter في pubspec — استخدام $FV"; fi
-          echo "flutter=$FV" >> "$GITHUB_OUTPUT"
-          VERSION=$(grep -m1 '^version:' pubspec.yaml | sed -E 's/version:\s*//; s/\+.*//' | tr -d ' \r')
+          set -e
+          echo "--- pubspec environment ---"; sed -n '/^environment:/,/^$/p' pubspec.yaml || true
+          echo "--- .metadata ---"; sed -n '1,12p' .metadata 2>/dev/null || true
+          VERSION=$(grep -m1 '^version:' pubspec.yaml | sed -E 's/version:[[:space:]]*//; s/\+.*//' | tr -d ' \r')
           [ -z "$VERSION" ] && VERSION="0.0.0"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=islam-admin-v$VERSION-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-          echo "Flutter=$FV  Version=$VERSION"
+          APPID=$(grep -m1 'applicationId' android/app/build.gradle | sed -E 's/.*applicationId[[:space:]]*"([^"]+)".*/\1/')
+          [ -z "$APPID" ] && APPID="com.apps.ssdco.school"
+          {
+            echo "version=$VERSION"
+            echo "appid=$APPID"
+            echo "tag=islam-admin-v$VERSION-${{ github.run_number }}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version=$VERSION  applicationId=$APPID"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "${{ inputs.java_version }}"
+          java-version: "${{ inputs.java_version || '11' }}"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ steps.detect.outputs.flutter }}
+          flutter-version: ${{ inputs.flutter_version || '3.7.12' }}
           channel: stable
           cache: true
 
-      - name: تعطيل متطلبات مفتاح النشر مؤقتًا (وقت البناء فقط)
+      # ===== تعديلات وقت البناء فقط — لا تُدفع لأي مستودع =====
+
+      - name: توفير google-services.json (سبب فشل البناء السابق)
+        env:
+          GS_JSON_B64: ${{ secrets.ISLAM_ADMIN_GOOGLE_SERVICES_JSON }}
         run: |
-          # لو build.gradle بيقرأ key.properties، نوفّر ملفًا يشير لمخزن الـ debug
+          set -e
+          TARGET=android/app/google-services.json
+          if [ -f "$TARGET" ]; then
+            echo "الملف موجود في السورس — لا حاجة لأي شيء."
+          elif [ -n "$GS_JSON_B64" ]; then
+            printf '%s' "$GS_JSON_B64" | base64 -d > "$TARGET"
+            echo "استُخدم google-services.json الحقيقي من الـ secret."
+          else
+            APPID='${{ steps.detect.outputs.appid }}'
+            cat > "$TARGET" <<JSON
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "islam-admin-placeholder",
+              "storage_bucket": "islam-admin-placeholder.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": { "package_name": "$APPID" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" } ],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+            echo "::warning::google-services.json غير موجود في السورس ولا في secrets — استُخدم ملف وهمي."
+            echo "::warning::الـAPK هيتبني ويتثبت، لكن خدمات Firebase (تسجيل الدخول/Firestore) مش هتشتغل."
+            echo "::warning::لتفعيلها: ضيف secret اسمه ISLAM_ADMIN_GOOGLE_SERVICES_JSON بمحتوى الملف الحقيقي مشفّر base64."
+          fi
+
+      - name: رفع minSdkVersion إلى 21
+        run: |
+          set -e
+          # Flutter 3.7 بيحطّ flutter.minSdkVersion = 16، وplugins الـFirebase محتاجة 19+
+          sed -i -E 's/minSdkVersion[[:space:]]+flutter\.minSdkVersion/minSdkVersion 21/' android/app/build.gradle
+          grep -n 'minSdkVersion' android/app/build.gradle
+
+      - name: توفير مفتاح توقيع debug لو build.gradle بيطلب key.properties
+        run: |
+          set -e
           GP=android/app/build.gradle
           [ -f "$GP" ] || GP=android/app/build.gradle.kts
           if grep -q 'key.properties' "$GP" 2>/dev/null && [ ! -f android/key.properties ]; then
@@ -83,15 +140,16 @@ jobs:
               echo "keyAlias=androiddebugkey"
               echo "storeFile=$HOME/.android/debug.keystore"
             } > android/key.properties
-            echo "أُنشئ key.properties مؤقت بمفتاح debug (لا يُرفع لأي مكان)."
+            echo "أُنشئ key.properties مؤقت بمفتاح debug."
+          else
+            echo "المشروع لا يقرأ key.properties — تخطّي."
           fi
+
+      # ===== البناء =====
 
       - name: flutter pub get
         run: |
-          flutter pub get
-          # google_fonts 3.x بيتعارض مع AssetManifest في Flutter 3.16+.
-          # الترقية هنا وقت البناء فقط — لا تُدفع لأي مستودع.
-          flutter pub add google_fonts:^6.1.0
+          flutter --version
           flutter pub get
 
       - name: بناء APK (debug signing)
@@ -99,8 +157,10 @@ jobs:
 
       - name: تجهيز الملفات
         run: |
+          set -e
           mkdir -p dist
-          cp $(find build/app/outputs -name '*.apk' | head -1) "dist/islam-admin-${{ steps.detect.outputs.version }}-debug.apk"
+          APK=$(find build/app/outputs -name '*.apk' | head -1)
+          cp "$APK" "dist/islam-admin-${{ steps.detect.outputs.version }}-debug.apk"
           ( cd dist && sha256sum ./*.apk > SHA256SUMS.txt )
           ls -la dist
 
@@ -109,10 +169,10 @@ jobs:
           {
             printf '## إسلام صبحي — الأدمن — إصدار تجريبي\n\n'
             printf '> **APK موقّع بمفتاح debug** — للتجربة والتثبيت المباشر فقط، غير صالح لـ Google Play.\n\n'
-            printf -- '- المصدر: `Kartonaa/islam-admin`\n'
-            printf -- '- الفرع/المرجع: `%s`\n' "${{ inputs.ref }}"
+            printf -- '- المصدر: `EGYFIRE/islam-admin`\n'
+            printf -- '- الفرع/المرجع: `%s`\n' "${{ inputs.ref || 'الافتراضي' }}"
             printf -- '- الكوميت: `%s`\n' "$(git rev-parse HEAD)"
-            printf -- '- Flutter: `%s` · Java: `%s`\n\n' "${{ steps.detect.outputs.flutter }}" "${{ inputs.java_version }}"
+            printf -- '- Flutter: `%s` · Java: `%s`\n\n' "${{ inputs.flutter_version || '3.7.12' }}" "${{ inputs.java_version || '11' }}"
             printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n'
           } > release-body.md
 
@@ -124,6 +184,7 @@ jobs:
           body_path: release-body.md
           files: dist/*
           fail_on_unmatched_files: true
-          draft: true
+          draft: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
