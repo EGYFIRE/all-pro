@@ -8,6 +8,16 @@ name: تطبيق إسلام صبحي
 #   android/build.gradle: أسلوب plugins{} الحديث (dev.flutter.flutter-gradle-plugin)
 #   gradle-wrapper: Gradle 7.5 · compileSdk 34 · minSdk 23  →  JDK 17
 #   google-services.json موجود في السورس — لا يحتاج أي تدخل.
+#
+# التوقيع: الـAPK موقّع بمفتاح debug. افتراضيًا يتولّد مفتاح جديد كل بناء، وده
+# معناه إن كل نسخة مش هتتثبت فوق اللي قبلها. لتثبيت مفتاح واحد دائم، جهّز مخزنًا
+# مرة واحدة على جهازك:
+#   keytool -genkeypair -keystore debug.keystore -storepass android -keypass android \
+#     -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+#     -dname "CN=Android Debug,O=Android,C=US"
+#   base64 -w0 debug.keystore
+# وحُط الناتج في secret على all-pro اسمه ANDROID_DEBUG_KEYSTORE_B64.
+# (كلمة المرور والـalias لازم يفضلوا بالقيم القياسية اللي فوق.)
 
 on:
   workflow_dispatch:
@@ -72,24 +82,43 @@ jobs:
           channel: stable
           cache: true
 
-      - name: تعطيل متطلبات مفتاح النشر مؤقتًا (وقت البناء فقط)
+      - name: تجهيز مفتاح التوقيع (وقت البناء فقط)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
         run: |
-          # لو build.gradle بيقرأ key.properties، نوفّر ملفًا يشير لمخزن الـ debug
+          set -e
+          mkdir -p "$HOME/.android"
+          KS="$HOME/.android/debug.keystore"
+
+          # مخزن المفاتيح دايمًا في مسار الـdebug القياسي، عشان يشتغل مع
+          # المشاريع اللي بتستخدم signingConfigs.debug ومع اللي بتقرا key.properties.
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
+            echo "استُخدم مخزن مفاتيح ثابت من الـsecret — التوقيع هيفضل نفسه في كل بناء."
+          else
+            keytool -genkeypair -v -keystore "$KS" \
+              -storepass android -keypass android -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
+            echo "::warning::لا يوجد secret باسم ANDROID_DEBUG_KEYSTORE_B64، فتولّد مفتاح debug جديد لهذا البناء."
+            echo "::warning::معناها إن الـAPK ده مش هيتثبت فوق أي نسخة مثبتة قبل كده (توقيع مختلف) — لازم إلغاء التثبيت أولًا."
+            echo "::warning::لتثبيت مفتاح واحد لكل البناءات، أضف الـsecret كما هو موضّح في تعليقات الـworkflow."
+          fi
+
+          keytool -list -keystore "$KS" -storepass android -alias androiddebugkey \
+            | sed -n 's/.*SHA-256: */بصمة التوقيع SHA-256: /p' || true
+
+          # المشاريع اللي بتقرا key.properties محتاجة الملف ده
           GP=android/app/build.gradle
           [ -f "$GP" ] || GP=android/app/build.gradle.kts
           if grep -q 'key.properties' "$GP" 2>/dev/null && [ ! -f android/key.properties ]; then
-            mkdir -p "$HOME/.android"
-            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -keypass android -alias androiddebugkey \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null || true
             {
               echo "storePassword=android"
               echo "keyPassword=android"
               echo "keyAlias=androiddebugkey"
-              echo "storeFile=$HOME/.android/debug.keystore"
+              echo "storeFile=$KS"
             } > android/key.properties
-            echo "أُنشئ key.properties مؤقت بمفتاح debug (لا يُرفع لأي مكان)."
+            echo "أُنشئ key.properties مؤقت يشير لنفس المخزن."
           fi
 
       - name: توافق مع --split-per-abi (وقت البناء فقط)
