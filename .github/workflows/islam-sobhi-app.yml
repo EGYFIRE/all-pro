@@ -90,41 +90,59 @@ jobs:
 
       - name: تجهيز مفتاح التوقيع (وقت البناء فقط)
         env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
         run: |
           set -e
           mkdir -p "$HOME/.android"
           KS="$HOME/.android/debug.keystore"
 
-          # مخزن المفاتيح دايمًا في مسار الـdebug القياسي، عشان يشتغل مع
-          # المشاريع اللي بتستخدم signingConfigs.debug ومع اللي بتقرا key.properties.
-          if [ -n "$KEYSTORE_B64" ]; then
-            printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
-            echo "استُخدم مخزن مفاتيح ثابت من الـsecret — التوقيع هيفضل نفسه في كل بناء."
+          if [ -n "$RELEASE_KEYSTORE_B64" ]; then
+            # إخفاء القيم الحسّاسة من السجل قبل أي استخدام
+            echo "::add-mask::$RELEASE_STORE_PASSWORD"
+            echo "::add-mask::$RELEASE_KEY_PASSWORD"
+            echo "::add-mask::$RELEASE_KEY_ALIAS"
+
+            KS="$RUNNER_TEMP/release.jks"
+            printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > "$KS"
+            chmod 600 "$KS"
+            STOREPASS="$RELEASE_STORE_PASSWORD"
+            ALIAS="$RELEASE_KEY_ALIAS"
+            KEYPASS="${RELEASE_KEY_PASSWORD:-$RELEASE_STORE_PASSWORD}"
+            MODE="مفتاح النشر الحقيقي"
+          elif [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > "$KS"
+            STOREPASS=android; ALIAS=androiddebugkey; KEYPASS=android
+            MODE="مفتاح debug ثابت من secret"
           else
             keytool -genkeypair -v -keystore "$KS" \
               -storepass android -keypass android -alias androiddebugkey \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
-            echo "::warning::لا يوجد secret باسم ANDROID_DEBUG_KEYSTORE_B64، فتولّد مفتاح debug جديد لهذا البناء."
-            echo "::warning::معناها إن الـAPK ده مش هيتثبت فوق أي نسخة مثبتة قبل كده (توقيع مختلف) — لازم إلغاء التثبيت أولًا."
-            echo "::warning::لتثبيت مفتاح واحد لكل البناءات، أضف الـsecret كما هو موضّح في تعليقات الـworkflow."
+            STOREPASS=android; ALIAS=androiddebugkey; KEYPASS=android
+            MODE="مفتاح debug مؤقت (جديد لكل بناء)"
+            echo "::warning::لا يوجد مفتاح ثابت — الـAPK لن يُثبَّت فوق أي نسخة مثبتة مسبقًا."
           fi
+          echo "التوقيع: $MODE"
 
-          keytool -list -keystore "$KS" -storepass android -alias androiddebugkey \
-            | sed -n 's/.*SHA-256: */بصمة التوقيع SHA-256: /p' || true
+          # البصمة وحدها تُطبع (ليست سرًا) — لتسجيلها في Firebase
+          keytool -list -keystore "$KS" -storepass "$STOREPASS" -alias "$ALIAS" 2>/dev/null \
+            | sed -n 's/.*SHA-256: */بصمة SHA-256: /p' || true
 
-          # المشاريع اللي بتقرا key.properties محتاجة الملف ده
           GP=android/app/build.gradle
           [ -f "$GP" ] || GP=android/app/build.gradle.kts
           if grep -q 'key.properties' "$GP" 2>/dev/null && [ ! -f android/key.properties ]; then
             {
-              echo "storePassword=android"
-              echo "keyPassword=android"
-              echo "keyAlias=androiddebugkey"
+              echo "storePassword=$STOREPASS"
+              echo "keyPassword=$KEYPASS"
+              echo "keyAlias=$ALIAS"
               echo "storeFile=$KS"
             } > android/key.properties
-            echo "أُنشئ key.properties مؤقت يشير لنفس المخزن."
+            chmod 600 android/key.properties
+            echo "أُنشئ key.properties (لا يُدفع لأي مستودع)."
           fi
 
       - name: توافق مع --split-per-abi (وقت البناء فقط)
@@ -145,23 +163,47 @@ jobs:
           set -e
           python3 - <<'PY'
           import sys, pathlib
+          errs = []
+
+          # (أ) checkAuth: بدل تخطّي تسجيل الدخول وترك user = null،
+          #     نبني UserModel ضيف كامل — لأن MainPage وغيره يستخدمون user! مباشرة.
           p = pathlib.Path('lib/features/authentication/presentation/bloc/authentication_cubit.dart')
           s = p.read_text()
           old = "    }else{\n      emit(state.copyWith(authState: AuthState.login));\n    }"
           new = ("    }else{\n"
-                 "      // وضع الضيف: تخطّي تسجيل الدخول — تعديل وقت البناء فقط\n"
+                 "      // وضع الضيف — تعديل وقت البناء فقط\n"
+                 "      user = UserModel(\n"
+                 "        id: 0, full_name: 'ضيف', premium: false,\n"
+                 "        credit: 0, points: 0, referral: '',\n"
+                 "        otp_approved: true, is_new_user: false,\n"
+                 "        profile_picture: '',\n"
+                 "      );\n"
+                 "      editedUser = user;\n"
                  "      emit(state.copyWith(authState: AuthState.loggedIn));\n    }")
-          if old not in s:
-              sys.exit("::error::تعذّر تفعيل وضع الضيف: الكود المتوقّع في checkAuth() غير موجود.")
-          p.write_text(s.replace(old, new, 1))
-          print("وضع الضيف مُفعّل — التطبيق هيفتح على الصفحة الرئيسية مباشرة.")
+          if old in s:
+              p.write_text(s.replace(old, new, 1))
+              print("✔ checkAuth: أُنشئ مستخدم ضيف")
+          else:
+              errs.append("checkAuth")
+
+          # (ب) MainPage: user! يسبّب انهيارًا فوريًا لو بقي null لأي سبب
+          p = pathlib.Path('lib/features/main/presentation/main/main_page.dart')
+          s = p.read_text()
+          if 'cubit.user!.premium' in s:
+              p.write_text(s.replace('cubit.user!.premium', '(cubit.user?.premium ?? false)', 1))
+              print("✔ MainPage: user! صار آمنًا ضد null")
+          else:
+              errs.append("MainPage")
+
+          if errs:
+              sys.exit("::error::تعذّر تفعيل وضع الضيف — لم يُعثر على الكود المتوقّع في: " + ", ".join(errs))
           PY
-          echo "::warning::وضع الضيف مفعّل: أي شاشة تحتاج تسجيل دخول أو بيانات من السيرفر هتفضى أو تفشل."
+          echo "::warning::وضع الضيف مفعّل: الأقسام المحلية فقط تعمل؛ أي شاشة تحتاج السيرفر ستكون فارغة."
 
       - name: flutter pub get
         run: flutter pub get
 
-      - name: بناء APK (release موقّع بمفتاح debug · arm64-v8a فقط)
+      - name: بناء APK (release · arm64-v8a فقط)
         run: |
           # --no-shrink يعطّل R8: بدونه يشوّش/يحذف كلاسات الـplugins التي
           # تُحمَّل بالانعكاس، فتفشل قنوات المنصّة برسالة
@@ -184,7 +226,7 @@ jobs:
         run: |
           {
             printf '## تطبيق إسلام صبحي — إصدار تجريبي\n\n'
-            printf '> نسخة **release** موقّعة بمفتاح **debug** مؤقت — للتجربة والتثبيت المباشر فقط، غير صالحة لـ Google Play.\n\n'
+            printf '> نسخة **release** للتجربة والتثبيت المباشر.\n\n'
             printf -- '- النسخة: `%s`\n' "${{ steps.detect.outputs.version }}"
             printf -- '- المعمارية: `arm64-v8a` (أجهزة 64-بت الحديثة)\n'
             printf -- '- الحجم: `%s`\n' "${{ steps.pack.outputs.size }}"
@@ -203,3 +245,11 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: محو آثار المفتاح
+        if: always()
+        run: |
+          shred -u "$RUNNER_TEMP/release.jks" 2>/dev/null || rm -f "$RUNNER_TEMP/release.jks"
+          shred -u android/key.properties 2>/dev/null || rm -f android/key.properties
+          rm -f "$HOME/.android/debug.keystore"
+          echo "تم محو مخزن المفاتيح وkey.properties من الـrunner."
