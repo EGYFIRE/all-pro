@@ -89,12 +89,10 @@ jobs:
       - name: flutter pub get
         run: |
           flutter pub get
-          # google_fonts أقدم من 4 بيتعارض مع AssetManifest في Flutter 3.16+.
+          # google_fonts 3.x بيتعارض مع AssetManifest في Flutter 3.16+.
           # الترقية هنا وقت البناء فقط — لا تُدفع لأي مستودع.
-          if grep -qE '^\s+google_fonts: 3\.' pubspec.lock 2>/dev/null; then
-            echo "ترقية google_fonts مؤقتًا للتوافق مع Flutter ${{ steps.detect.outputs.flutter }}"
-            flutter pub add google_fonts:^6.1.0
-          fi
+          flutter pub add google_fonts:^6.1.0
+          flutter pub get
 
       - name: بناء APK (debug signing)
         run: flutter build apk --debug
