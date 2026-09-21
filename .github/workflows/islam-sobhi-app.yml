@@ -34,6 +34,12 @@ on:
         description: "نسخة Java"
         required: false
         default: "17"
+      guest_mode:
+        description: "دخول كضيف — يتخطّى شاشة تسجيل الدخول (للتجربة فقط)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
 
 permissions:
   contents: write
@@ -132,6 +138,25 @@ jobs:
           else
             echo "لا توجد abiFilters — تخطّي."
           fi
+
+      - name: وضع الضيف (تعديل وقت البناء فقط)
+        if: inputs.guest_mode == 'true'
+        run: |
+          set -e
+          python3 - <<'PY'
+          import sys, pathlib
+          p = pathlib.Path('lib/features/authentication/presentation/bloc/authentication_cubit.dart')
+          s = p.read_text()
+          old = "    }else{\n      emit(state.copyWith(authState: AuthState.login));\n    }"
+          new = ("    }else{\n"
+                 "      // وضع الضيف: تخطّي تسجيل الدخول — تعديل وقت البناء فقط\n"
+                 "      emit(state.copyWith(authState: AuthState.loggedIn));\n    }")
+          if old not in s:
+              sys.exit("::error::تعذّر تفعيل وضع الضيف: الكود المتوقّع في checkAuth() غير موجود.")
+          p.write_text(s.replace(old, new, 1))
+          print("وضع الضيف مُفعّل — التطبيق هيفتح على الصفحة الرئيسية مباشرة.")
+          PY
+          echo "::warning::وضع الضيف مفعّل: أي شاشة تحتاج تسجيل دخول أو بيانات من السيرفر هتفضى أو تفشل."
 
       - name: flutter pub get
         run: flutter pub get
