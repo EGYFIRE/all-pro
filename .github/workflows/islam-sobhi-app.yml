@@ -92,6 +92,18 @@ jobs:
             echo "أُنشئ key.properties مؤقت بمفتاح debug (لا يُرفع لأي مكان)."
           fi
 
+      - name: توافق مع --split-per-abi (وقت البناء فقط)
+        run: |
+          set -e
+          # المستودع بيحدد ndk abiFilters في buildTypes.release، وGradle بيرفض
+          # وجودها مع splits abi. --split-per-abi بيأدي نفس الغرض وأدق.
+          if grep -q 'abiFilters' android/app/build.gradle; then
+            sed -i '/abiFilters/d' android/app/build.gradle
+            echo "أُزيلت abiFilters وقت البناء — لا تُدفع لأي مستودع."
+          else
+            echo "لا توجد abiFilters — تخطّي."
+          fi
+
       - name: flutter pub get
         run: flutter pub get
 
