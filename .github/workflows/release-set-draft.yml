@@ -1,0 +1,37 @@
+name: أداة — تحويل Release إلى Draft
+
+# أداة صيانة عامة: بتحوّل Release منشور إلى Draft بدون حذفه ولا حذف الـtag.
+# بتشتغل يدويًا بس، وعلى التاجات اللي بتتكتب في المدخلات فقط.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "تاجات مفصولة بفاصلة، مثال: islam-admin-v1.0.0-8,islam-sobhi-app-v4.0.5-5"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  to-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تحويل التاجات المطلوبة إلى Draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ inputs.tags }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          echo "$TAGS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | while read -r TAG; do
+            [ -z "$TAG" ] && continue
+            ID=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.id' 2>/dev/null || true)
+            if [ -z "$ID" ]; then
+              echo "::error::لم يُعثر على release بالتاج $TAG"
+              exit 1
+            fi
+            gh api -X PATCH "repos/$REPO/releases/$ID" -F draft=true -F prerelease=false --silent
+            STATE=$(gh api "repos/$REPO/releases/$ID" --jq '"draft=\(.draft) prerelease=\(.prerelease)"')
+            echo "✔ $TAG (id=$ID) → $STATE"
+          done

@@ -152,28 +152,29 @@ jobs:
           flutter --version
           flutter pub get
 
-      - name: بناء APK (debug signing)
-        run: flutter build apk --debug
+      - name: بناء APK (release موقّع بمفتاح debug · arm64-v8a فقط)
+        run: flutter build apk --release --split-per-abi --target-platform android-arm64
 
-      - name: تجهيز الملفات
+      - name: تجهيز الملف
         run: |
           set -e
-          mkdir -p dist
-          APK=$(find build/app/outputs -name '*.apk' | head -1)
-          cp "$APK" "dist/islam-admin-${{ steps.detect.outputs.version }}-debug.apk"
-          ( cd dist && sha256sum ./*.apk > SHA256SUMS.txt )
+          rm -rf dist && mkdir -p dist
+          APK=$(find build/app/outputs -name 'app-arm64-v8a-release.apk' | head -1)
+          if [ -z "$APK" ]; then echo '::error::لم يُعثر على APK الخاص بـ arm64-v8a'; find build/app/outputs -name '*.apk'; exit 1; fi
+          cp "$APK" "dist/islam-admin-${{ steps.detect.outputs.version }}-arm64-v8a-release.apk"
           ls -la dist
+          echo "size=$(du -h dist/*.apk | cut -f1)" >> "$GITHUB_OUTPUT"
+        id: pack
 
       - name: تجهيز وصف الإصدار
         run: |
           {
             printf '## إسلام صبحي — الأدمن — إصدار تجريبي\n\n'
-            printf '> **APK موقّع بمفتاح debug** — للتجربة والتثبيت المباشر فقط، غير صالح لـ Google Play.\n\n'
-            printf -- '- المصدر: `EGYFIRE/islam-admin`\n'
-            printf -- '- الفرع/المرجع: `%s`\n' "${{ inputs.ref || 'الافتراضي' }}"
-            printf -- '- الكوميت: `%s`\n' "$(git rev-parse HEAD)"
-            printf -- '- Flutter: `%s` · Java: `%s`\n\n' "${{ inputs.flutter_version || '3.7.12' }}" "${{ inputs.java_version || '11' }}"
-            printf '```\n'; sed 's|\./||' dist/SHA256SUMS.txt; printf '```\n'
+            printf '> نسخة **release** موقّعة بمفتاح **debug** مؤقت — للتجربة والتثبيت المباشر فقط، غير صالحة لـ Google Play.\n\n'
+            printf -- '- النسخة: `%s`\n' "${{ steps.detect.outputs.version }}"
+            printf -- '- المعمارية: `arm64-v8a` (أجهزة 64-بت الحديثة)\n'
+            printf -- '- الحجم: `%s`\n' "${{ steps.pack.outputs.size }}"
+            printf -- '- Flutter: `%s` · Java: `%s`\n' "${{ inputs.flutter_version || '3.7.12' }}" "${{ inputs.java_version || '11' }}"
           } > release-body.md
 
       - name: نشر الإصدار
@@ -182,9 +183,9 @@ jobs:
           tag_name: ${{ steps.detect.outputs.tag }}
           name: "إسلام صبحي — الأدمن — تجريبي v${{ steps.detect.outputs.version }} (بناء ${{ github.run_number }})"
           body_path: release-body.md
-          files: dist/*
+          files: dist/*.apk
           fail_on_unmatched_files: true
-          draft: false
-          prerelease: true
+          draft: true
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
