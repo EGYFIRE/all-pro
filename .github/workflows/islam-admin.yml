@@ -180,7 +180,12 @@ jobs:
           flutter pub get
 
       - name: بناء APK (release موقّع بمفتاح debug · arm64-v8a فقط)
-        run: flutter build apk --release --split-per-abi --target-platform android-arm64
+        run: |
+          # --no-shrink يعطّل R8: بدونه يشوّش/يحذف كلاسات الـplugins التي
+          # تُحمَّل بالانعكاس، فتفشل قنوات المنصّة برسالة
+          # "Unable to establish connection on channel" (ظهرت في firebase_auth
+          # عند التحقق من رقم الهاتف). المشروع لا يحوي proguard-rules.pro.
+          flutter build apk --release --no-shrink --split-per-abi --target-platform android-arm64
 
       - name: تجهيز الملف
         run: |
