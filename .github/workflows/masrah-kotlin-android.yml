@@ -1,0 +1,238 @@
+name: Build Android APK (تطبيق Kotlin — مسرح الجريمة)
+
+# نموذج واجهة مكتوب بـKotlin/Compose، **تجربة بس مش التطبيق**. السورس في فرع
+# يتيم اسمه proto/kotlin-app في EGYFIRE/Masrah الخاص، منفصل تمامًا عن فرع
+# اللعبة وما بيلمسهوش.
+#
+# والبناء هنا لنفس سبب الباقي: الريبوهات الخاصة بتتقاسم 2000 دقيقة في الشهر،
+# والريبو العام دقايقه مجانية وغير محدودة. والإصدار **مسوّدة** دايمًا.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع في الريبو الخاص"
+        required: false
+        default: "proto/kotlin-app"
+      variant:
+        description: "debug (بيتركّب على طول) أو release (غير موقّع، ما يتركّبش)"
+        required: false
+        default: debug
+        type: choice
+        options: [debug, release]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: بناء ونشر تطبيق Kotlin
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/Masrah
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      # النموذج اتكتب بموديل شات، فأرقام إصداراته تخمين: AGP 9.4.0، و
+      # compileSdk 37، وCompose BOM 2026.09.00. ممكن تكون موجودة وممكن لأ.
+      #
+      # فبدل ما نخمّن ورا التخمين، بنسأل المستودعات نفسها عن آخر إصدار **مستقر**
+      # منشور فعلًا، وبناخد أعلى منصة **متركّبة** على الرَنَر، وبنكتبهم قبل
+      # البناء. وكل رقم بيتطبع — فتشغيلة واحدة بتدّينا الأرقام الحقيقية.
+      - name: أرقام إصدارات موجودة فعلًا
+        id: ver
+        run: |
+          set -euo pipefail
+
+          latest() {   # <رابط الميتاداتا> ← أحدث إصدار مستقر
+            curl -fsSL --retry 3 "$1" \
+              | grep -o '<version>[^<]*</version>' \
+              | sed 's/<[^>]*>//g' \
+              | grep -Ev '(alpha|beta|rc|dev|-M[0-9]|SNAPSHOT)' \
+              | sort -V | tail -1
+          }
+
+          G=https://dl.google.com/dl/android/maven2
+          C=https://repo1.maven.org/maven2
+
+          AGP=$(latest       "$G/com/android/tools/build/gradle/maven-metadata.xml")
+          KOTLIN=$(latest    "$C/org/jetbrains/kotlin/kotlin-gradle-plugin/maven-metadata.xml")
+          BOM=$(latest       "$G/androidx/compose/compose-bom/maven-metadata.xml")
+          ACTIVITY=$(latest  "$G/androidx/activity/activity-compose/maven-metadata.xml")
+          LIFECYCLE=$(latest "$G/androidx/lifecycle/lifecycle-runtime-compose/maven-metadata.xml")
+
+          # الـcompileSdk: لا من المتركّب ولا بالتخمين.
+          #
+          # جرّبنا «أعلى منصة متركّبة» فطلعت ٣٦، والمكتبات بتطلب ٣٧. وجرّبنا
+          # نركّب `platforms;android-37` فقال «Failed to find package» —
+          # لأن المنصات الجديدة بقى ليها إصدار فرعي: `android-37.2` مثلًا.
+          #
+          # فبناخد أعلى حزمة **منشورة فعلًا** بالاسم الكامل بتاعها، ونركّبها،
+          # ونكتب الرقم الأساسي في compileSdk والفرعي في compileSdkMinor.
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          PKG=""
+          if [ -x "$SDKMGR" ]; then
+            echo "المنصات المنشورة:"
+            "$SDKMGR" --list 2>/dev/null \
+              | grep -oE 'platforms;android-[0-9]+(\.[0-9]+)?' | sort -u -V | tr '\n' ' ' || true
+            echo
+            PKG=$("$SDKMGR" --list 2>/dev/null \
+                  | grep -oE 'platforms;android-[0-9]+(\.[0-9]+)?' | sort -u -V | tail -1 || true)
+          fi
+
+          if [ -n "$PKG" ]; then
+            VER=${PKG##*-}
+            "$SDKMGR" "$PKG" > /dev/null || {
+              echo "::warning::ما قدرتش أركّب $PKG — هرجع للمتركّب"
+              PKG=""
+            }
+          fi
+          if [ -z "$PKG" ]; then
+            VER=$(ls "$ANDROID_HOME/platforms" | sed -n 's/^android-//p' | sort -V | tail -1)
+          fi
+
+          SDK=${VER%%.*}
+          MINOR=""
+          case "$VER" in *.*) MINOR=${VER#*.} ;; esac
+
+          echo "AGP=$AGP"
+          echo "Kotlin=$KOTLIN"
+          echo "compose-bom=$BOM"
+          echo "activity-compose=$ACTIVITY"
+          echo "lifecycle-runtime-compose=$LIFECYCLE"
+          echo "compileSdk=$SDK${MINOR:+ (فرعي $MINOR)}   من الحزمة ${PKG:-المتركّب}"
+
+          for v in "$AGP" "$KOTLIN" "$BOM" "$ACTIVITY" "$LIFECYCLE" "$SDK"; do
+            [ -n "$v" ] || { echo "::error::رقم إصدار رجع فاضي"; exit 1; }
+          done
+
+          {
+            echo "agp=$AGP"
+            echo "kotlin=$KOTLIN"
+            echo "bom=$BOM"
+            echo "sdk=$SDK"
+          } >> "$GITHUB_OUTPUT"
+
+          sed -i \
+            -e "s|com.android.application\") version \"[^\"]*\"|com.android.application\") version \"$AGP\"|" \
+            -e "s|org.jetbrains.kotlin.android\") version \"[^\"]*\"|org.jetbrains.kotlin.android\") version \"$KOTLIN\"|" \
+            -e "s|org.jetbrains.kotlin.plugin.compose\") version \"[^\"]*\"|org.jetbrains.kotlin.plugin.compose\") version \"$KOTLIN\"|" \
+            build.gradle.kts
+
+          sed -i \
+            -e "s|compileSdk = [0-9]*|compileSdk = $SDK|" \
+            -e "s|targetSdk = [0-9]*|targetSdk = $SDK|" \
+            -e "s|compose-bom:[^\"]*|compose-bom:$BOM|" \
+            -e "s|androidx.activity:activity-compose:[^\"]*|androidx.activity:activity-compose:$ACTIVITY|" \
+            -e "s|androidx.lifecycle:lifecycle-runtime-compose:[^\"]*|androidx.lifecycle:lifecycle-runtime-compose:$LIFECYCLE|" \
+            app/build.gradle.kts
+
+          # المنصة اللي لقيناها ليها إصدار فرعي، فلازم يتكتب — compileSdk
+          # لوحده رقم صحيح ومايعرفش يوصّل لـandroid-37.2.
+          if [ -n "$MINOR" ] && ! grep -q compileSdkMinor app/build.gradle.kts; then
+            sed -i "s|^\( *\)compileSdk = .*|&\n\1compileSdkMinor = $MINOR|" app/build.gradle.kts
+          fi
+
+          # ومن AGP 9 كوتلن جوّه الـplugin نفسه، وتطبيق
+          # org.jetbrains.kotlin.android معاه بيوقّع البناء بالنص:
+          # «no longer required for Kotlin support since AGP 9.0».
+          if [ "${AGP%%.*}" -ge 9 ]; then
+            echo "AGP ${AGP%%.*}.x — بشيل org.jetbrains.kotlin.android"
+            sed -i '/org\.jetbrains\.kotlin\.android/d' build.gradle.kts app/build.gradle.kts
+          fi
+
+          echo '--- build.gradle.kts ---';     cat build.gradle.kts
+          echo '--- app/build.gradle.kts ---'; cat app/build.gradle.kts
+
+      # الزيب مفيهوش gradle wrapper، فالجريدل جاي من الأكشن.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: current
+
+      # جريدل بيطبع أغلاط الترجمة كسطور «e:» في نص السجل، وبعدين بيرمي
+      # stacktrace بميت سطر فيه غلط واحد بس. فلو البناء وقع، بنطبع سطور الـ
+      # «e:» كلها في مجموعة لوحدها — يعني كل الأغلاط تتصلّح في لفّة واحدة بدل
+      # واحدة كل تشغيلة.
+      - name: بناء APK
+        run: |
+          set -uo pipefail
+          if [ "${{ inputs.variant }}" = "release" ]; then TASK=assembleRelease
+          else TASK=assembleDebug; fi
+
+          # أكشنز بيشغّل الـrun بـ`bash -e`، فأول ما الأنبوبة تقع السكريبت
+          # بيموت قبل ما يوصل للطباعة تحت. `set +e` بترجّع القرار لينا.
+          set +e
+          gradle "$TASK" --no-daemon --stacktrace 2>&1 | tee build.log
+          CODE=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$CODE" -ne 0 ]; then
+            echo "::group::أغلاط الترجمة كلها"
+            if grep -E '^e: ' build.log; then :; else
+              echo "(مفيش سطور e: — الوقعة مش من الترجمة، أهو آخر السجل:)"
+              grep -vE '^\s+at |^\t' build.log | tail -40
+            fi
+            echo "::endgroup::"
+          fi
+          exit "$CODE"
+
+      - name: تجهيز الملف
+        id: apk
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          SRC=$(find app/build/outputs/apk -name '*.apk' | head -1)
+          [ -n "$SRC" ] || { echo "::error::ما اتبنتش أي APK"; exit 1; }
+          OUT="dist/masrah-kotlin-0.0.${{ github.run_number }}.apk"
+          cp "$SRC" "$OUT"
+          ls -lh "$OUT"
+          echo "size=$(du -h "$OUT" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: نشر الإصدار
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: masrah-kotlin-v0.0.${{ github.run_number }}
+          name: "تطبيق Kotlin — مسرح الجريمة (بناء ${{ github.run_number }})"
+          body: |
+            **نموذج واجهة، مش التطبيق.** ده اللي ChatGPT عمله من بريف الـUI/UX،
+            متبني عشان نشوفه على التليفون ونحكم.
+
+            * المصدر: `EGYFIRE/Masrah` فرع `${{ inputs.ref }}` — فرع يتيم،
+              منفصل تمامًا عن شغل اللعبة.
+            * النسخة: `${{ inputs.variant }}` · الحجم: ${{ steps.apk.outputs.size }}
+            * اتبنى بـ AGP `${{ steps.ver.outputs.agp }}` · Kotlin
+              `${{ steps.ver.outputs.kotlin }}` · Compose BOM
+              `${{ steps.ver.outputs.bom }}` · compileSdk
+              `${{ steps.ver.outputs.sdk }}`.
+
+            التطبيق الحقيقي لسه `masrah-v0.0.*`.
+          files: dist/*
+          fail_on_unmatched_files: true
+          # مسوّدة دايمًا: الريبو عام عشان الدقايق، مش عشان النشر.
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: الدقايق لازم تكون صفر
+        if: always()
+        run: |
+          echo "اتأكد بعد ما يخلص:"
+          echo "curl -sS https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/timing"
+          echo "لازم billable.UBUNTU.total_ms = 0"
