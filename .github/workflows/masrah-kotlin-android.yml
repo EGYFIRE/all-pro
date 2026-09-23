@@ -1,8 +1,10 @@
 name: Build Android APK (تطبيق Kotlin — مسرح الجريمة)
 
-# نموذج واجهة مكتوب بـKotlin/Compose، **تجربة بس مش التطبيق**. السورس في فرع
-# يتيم اسمه proto/kotlin-app في EGYFIRE/Masrah الخاص، منفصل تمامًا عن فرع
-# اللعبة وما بيلمسهوش.
+# «مسرح الجريمة» مكتوبة من الأول بـKotlin/Compose. السورس في فرع اسمه
+# proto/kotlin-app في EGYFIRE/Masrah الخاص، جنب نسخة الفلاتر وما بيلمسهاش.
+#
+# بدأ نموذج واجهة، وبقى اللعبة نفسها: نفس سيرفر Supabase، ونفس الدوال،
+# ونفس الملفات والقضايا.
 #
 # والبناء هنا لنفس سبب الباقي: الريبوهات الخاصة بتتقاسم 2000 دقيقة في الشهر،
 # والريبو العام دقايقه مجانية وغير محدودة. والإصدار **مسوّدة** دايمًا.
@@ -211,18 +213,18 @@ jobs:
           tag_name: masrah-kotlin-v0.0.${{ github.run_number }}
           name: "تطبيق Kotlin — مسرح الجريمة (بناء ${{ github.run_number }})"
           body: |
-            **نموذج واجهة، مش التطبيق.** ده اللي ChatGPT عمله من بريف الـUI/UX،
-            متبني عشان نشوفه على التليفون ونحكم.
+            **«مسرح الجريمة» — نسخة Kotlin.** بدأت نموذج واجهة وبقت اللعبة
+            نفسها: نفس سيرفر Supabase، ونفس الدوال، ونفس الملفات والقضايا.
 
-            * المصدر: `EGYFIRE/Masrah` فرع `${{ inputs.ref }}` — فرع يتيم،
-              منفصل تمامًا عن شغل اللعبة.
+            * المصدر: `EGYFIRE/Masrah` فرع `${{ inputs.ref }}` — جنب نسخة
+              الفلاتر وما بيلمسهاش.
             * النسخة: `${{ inputs.variant }}` · الحجم: ${{ steps.apk.outputs.size }}
             * اتبنى بـ AGP `${{ steps.ver.outputs.agp }}` · Kotlin
               `${{ steps.ver.outputs.kotlin }}` · Compose BOM
               `${{ steps.ver.outputs.bom }}` · compileSdk
               `${{ steps.ver.outputs.sdk }}`.
 
-            التطبيق الحقيقي لسه `masrah-v0.0.*`.
+            نسخة الفلاتر لسه شغّالة وإصداراتها `masrah-v0.0.*`.
           files: dist/*
           fail_on_unmatched_files: true
           # مسوّدة دايمًا: الريبو عام عشان الدقايق، مش عشان النشر.
