@@ -1,0 +1,173 @@
+name: Build Android APK (شقة ١٤)
+
+# لعبة Unity 6. السورس خاص في EGYFIRE/Escape-Rooms (مشروع Unity في مجلد Shaqqa14/)،
+# والبناء هنا لنفس سبب باقي المشاريع: الريبو العام دقايقه مجانية. الناتج مسوّدة دايمًا.
+#
+# محتاج Secrets لمرة واحدة (التفاصيل في README):
+#   SOURCE_REPO_TOKEN                          ← موجود بالفعل لباقي المشاريع
+#   UNITY_LICENSE, UNITY_EMAIL, UNITY_PASSWORD ← رخصة Unity Personal (مجانية)
+#   ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASS / ANDROID_KEYALIAS_NAME / ANDROID_KEYALIAS_PASS
+#                                              ← اختياري؛ من غيرهم الـ APK بيتوقّع بمفتاح debug (بيتركّب عادي، مش للرفع على Play)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع أو الكوميت في EGYFIRE/Escape-Rooms — ابعته صراحةً!"
+        required: true
+        default: "claude/phase-a-mvp-d08okt"
+      export:
+        description: "apk (للتجربة على الموبايل) أو aab (Google Play)"
+        required: false
+        default: apk
+        type: choice
+        options: [apk, aab]
+      unity_version:
+        description: "نسخة Unity (فاضي = أحدث 6000.0 LTS ليها صورة game-ci)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: بناء ونشر شقة ١٤
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      # صورة Unity للأندرويد حوالي ١٥ جيجا، ومساحة الرَنَر الافتراضية ما تكفيش.
+      - name: مساحة على الرَنَر
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/Escape-Rooms
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: src
+
+      - name: التأكد من رخصة Unity
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$UNITY_LICENSE" ]  || missing="$missing UNITY_LICENSE"
+          [ -n "$UNITY_EMAIL" ]    || missing="$missing UNITY_EMAIL"
+          [ -n "$UNITY_PASSWORD" ] || missing="$missing UNITY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::ناقص Secrets:$missing — شوف قسم «شقة ١٤» في README الريبو ده."
+            exit 1
+          fi
+
+      # بدل ما نخمّن نسخة Unity، بنسأل Docker Hub عن أحدث 6000.0 ليها صورة أندرويد جاهزة من
+      # game-ci، ونكتبها في ProjectVersion.txt (المشروع نفسه ما بيتغيّرش في الريبو الخاص).
+      - name: نسخة Unity
+        id: unity
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.unity_version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(curl -fsSL --retry 3 \
+              "https://hub.docker.com/v2/namespaces/unityci/repositories/editor/tags?page_size=100&ordering=last_updated&name=ubuntu-6000.0" \
+              | python3 -c '
+          import json, re, sys
+          names = [r["name"] for r in json.load(sys.stdin)["results"]]
+          found = []
+          for n in names:
+              m = re.fullmatch(r"ubuntu-(6000\.0\.(\d+)f(\d+))-android-3", n)
+              if m:
+                  found.append((int(m.group(2)), int(m.group(3)), m.group(1)))
+          print(sorted(found)[-1][2] if found else "")
+          ')
+          fi
+          if [ -z "$VERSION" ]; then
+            VERSION=$(sed -n 's/^m_EditorVersion: //p' src/Shaqqa14/ProjectSettings/ProjectVersion.txt)
+            echo "::warning::ما لقيتش نسخة من Docker Hub — هستخدم نسخة المشروع $VERSION"
+          fi
+          echo "Unity $VERSION"
+          printf 'm_EditorVersion: %s\nm_EditorVersionWithRevision: %s\n' "$VERSION" "$VERSION" \
+            > src/Shaqqa14/ProjectSettings/ProjectVersion.txt
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: src/Shaqqa14/Library
+          key: Library-shaqqa14-android-${{ steps.unity.outputs.version }}-${{ hashFiles('src/Shaqqa14/Packages/manifest.json', 'src/Shaqqa14/Assets/**/*.meta') }}
+          restore-keys: |
+            Library-shaqqa14-android-${{ steps.unity.outputs.version }}-
+
+      # BuildScript.BuildAndroid بيطبّق إعدادات المشروع (IL2CPP / ARM64 / API 26 / Landscape Left /
+      # Input System) ويولّد المشاهد والخامات الأساسية قبل البناء، فالمشروع بيتبني من checkout نضيف.
+      - name: بناء Unity (game-ci)
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: src/Shaqqa14
+          unityVersion: ${{ steps.unity.outputs.version }}
+          targetPlatform: Android
+          buildName: shaqqa14
+          buildsPath: build
+          buildMethod: Shaqqa14.EditorTools.BuildScript.BuildAndroid
+          versioning: Custom
+          version: 0.1.${{ github.run_number }}
+          androidVersionCode: ${{ github.run_number }}
+          androidExportType: ${{ inputs.export == 'aab' && 'androidAppBundle' || 'androidPackage' }}
+          androidKeystoreName: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && 'shaqqa14.keystore' || '' }}
+          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          androidKeystorePass: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          androidKeyaliasName: ${{ secrets.ANDROID_KEYALIAS_NAME }}
+          androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+          allowDirtyBuild: true
+
+      - name: تجهيز الملف
+        id: out
+        run: |
+          set -euo pipefail
+          SRC=$(find build -type f \( -name '*.apk' -o -name '*.aab' \) | head -1)
+          [ -n "$SRC" ] || { echo "::error::ما اتبنتش أي APK/AAB"; exit 1; }
+          EXT="${SRC##*.}"
+          mkdir -p dist
+          OUT="dist/shaqqa14-0.1.${{ github.run_number }}.$EXT"
+          cp "$SRC" "$OUT"
+          ls -lh "$OUT"
+          echo "file=$OUT" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$OUT" | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "ext=$EXT" >> "$GITHUB_OUTPUT"
+
+      - name: نشر الإصدار
+        uses: softprops/action-gh-release@v2
+        with:
+          # run_id فريد لكل تشغيلة، فالتاج عمره ما يتصادم مع إصدار قديم.
+          tag_name: shaqqa14-v0.1.${{ github.run_id }}
+          name: "شقة ١٤ — المرحلة A + الـ MVP (بناء ${{ github.run_number }})"
+          body: |
+            **شقة ١٤** — المدخل والصالة (MVP) + مشهد اختبار الحساسات.
+
+            * المصدر: `EGYFIRE/Escape-Rooms` فرع/كوميت `${{ inputs.ref }}`
+            * Unity `${{ steps.unity.outputs.version }}` · `${{ steps.out.outputs.ext }}` · الحجم ${{ steps.out.outputs.size }}
+            * أول تشغيل: تحذير ← فحص الحساسات ← صلاحية المايك ← معايرة. اللعبة Offline بالكامل.
+            * للتجربة على الجهاز: القايمة الرئيسية ← «اختبار الحساسات» (معايير قبول المرحلة A).
+            * الأصوات والموديلات مؤقتة (Placeholders) — القائمة في `ASSETS_TODO.md`.
+          files: ${{ steps.out.outputs.file }}
+          fail_on_unmatched_files: true
+          # مسوّدة: الريبو عام عشان الدقايق، مش عشان النشر.
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -19,6 +19,7 @@
 | قُطوف — فيديوهات قصيرة إسلامية (Android) | `qutoof-android.yml` | `qutoof-v…` | `EGYFIRE/Short-video` |
 | ميعاد — إدارة الدروس الخصوصية (Android + Web) | `miaad-android.yml` | `miaad-v…` | `EGYFIRE/teacher` |
 | صابر — نظام إدارة المتاجر (Windows) | `saber-windows.yml` | `saber-…` | `EGYFIRE/Aswaq-exe` |
+| شقة ١٤ — لعبة رعب (Android، Unity 6) | `shaqqa14-android.yml` | `shaqqa14-v…` | `EGYFIRE/Escape-Rooms` |
 
 ## الإصدارات مسوّدات، لا منشورات
 
@@ -61,3 +62,25 @@
    secret** → الاسم `SOURCE_REPO_TOKEN` → الصق التوكن → Save.
 
 بعد الخطوتين دول، أي تشغيل يدوي (workflow_dispatch) لأي workflow هنا هيشتغل عادي.
+
+## شقة ١٤ (Unity) — إعداد رخصة Unity لمرة واحدة
+
+البناء بيستخدم [game-ci](https://game.ci) وصورة Docker فيها Unity، ومحتاج رخصة **Unity Personal** (مجانية)
+في ٣ Secrets إضافية جنب `SOURCE_REPO_TOKEN`:
+
+1. نزّل Unity Hub على جهازك، سجّل دخول، وفعّل **Personal license** (Preferences ← Licenses ← Add ← Get a free personal license).
+2. انسخ محتوى ملف الرخصة كله:
+   - Windows: `C:\ProgramData\Unity\Unity_lic.ulf`
+   - macOS: `/Library/Application Support/Unity/Unity_lic.ulf`
+   - Linux: `~/.local/share/unity3d/Unity/Unity_lic.ulf`
+3. من **Settings → Secrets and variables → Actions → New repository secret** اعمل:
+   - `UNITY_LICENSE` = محتوى الملف
+   - `UNITY_EMAIL` = إيميل حساب Unity
+   - `UNITY_PASSWORD` = باسورد حساب Unity
+4. (اختياري، للرفع على Google Play) مفتاح توقيع: `ANDROID_KEYSTORE_BASE64` (الملف بـ base64)،
+   `ANDROID_KEYSTORE_PASS`، `ANDROID_KEYALIAS_NAME`، `ANDROID_KEYALIAS_PASS`. من غيرهم الـ APK بيتوقّع بمفتاح debug
+   ويتركّب على الموبايل عادي.
+
+بعدها: **Actions ← Build Android APK (شقة ١٤) ← Run workflow** وابعت الفرع صراحةً. أول بناء بياخد وقت
+(تنزيل صورة Unity + IL2CPP)، والبنايات اللي بعده أسرع بفضل كاش مجلد `Library`. نسخة Unity بتتحدد أوتوماتيك
+(أحدث 6000.0 LTS ليها صورة جاهزة) أو تكتبها في خانة `unity_version`.
