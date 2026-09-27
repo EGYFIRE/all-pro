@@ -20,6 +20,7 @@
 | ميعاد — إدارة الدروس الخصوصية (Android + Web) | `miaad-android.yml` | `miaad-v…` | `EGYFIRE/teacher` |
 | صابر — نظام إدارة المتاجر (Windows) | `saber-windows.yml` | `saber-…` | `EGYFIRE/Aswaq-exe` |
 | شقة ١٤ — لعبة رعب (Android، Unity 6) | `shaqqa14-android.yml` | `shaqqa14-v…` | `EGYFIRE/Escape-Rooms` |
+| الصادق الأمين — موشن جرافيك 3D (فيديو MP4) | `motion-graphics-3d.yml` | `motion3d-…` | `EGYFIRE/Motion-Graphics` |
 
 ## الإصدارات مسوّدات، لا منشورات
 

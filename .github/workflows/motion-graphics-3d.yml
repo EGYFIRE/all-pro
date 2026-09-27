@@ -1,0 +1,175 @@
+name: Render Motion-Graphics 3D (الصادق الأمين)
+
+# السورس خاص في EGYFIRE/Motion-Graphics ولا يُرندر هناك أبدًا (دقائق الريبوهات الخاصة محدودة).
+# الرندر هنا (ريبو عام = دقائق مجانية غير محدودة): الفيديو بيتقسم على كذا جهاز شغالين مع بعض،
+# كل جهاز يرندر جزء من الفريمات، وبعدين جهاز أخير يلزق الأجزاء ويركّب الصوت
+# وينشر الناتج كـ Release (مسوّدة) بتاج يبدأ بـ motion3d-.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع في EGYFIRE/Motion-Graphics"
+        required: false
+        default: "claude/small-loop-3d-code-6d0omq"
+      until:
+        description: "طول الفيديو بالثواني (من أول الحلقة)"
+        required: false
+        default: "23.7"
+      chunks:
+        description: "عدد الأجهزة اللي بتقسم الرندر (1-20)"
+        required: false
+        default: "12"
+
+permissions:
+  contents: write
+
+env:
+  SLUG: sadiq-amin-3d-pilot-ep01
+
+jobs:
+  plan:
+    name: تقسيم الفريمات
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - id: p
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json
+          total = round(float("${{ inputs.until }}") * 30)
+          n = max(1, min(20, int("${{ inputs.chunks }}")))
+          cuts = [round(total * i / n) for i in range(n + 1)]
+          print("matrix=" + json.dumps([{"i": i, "a": cuts[i], "b": cuts[i + 1]} for i in range(n)]))
+          EOF
+
+  render:
+    name: رندر جزء ${{ matrix.part.i }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        part: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/Motion-Graphics
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          sparse-checkout: |
+            sadiq-amin
+            assets
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: تثبيت الأدوات
+        run: |
+          pip install -q numpy imageio-ffmpeg
+          cd sadiq-amin && npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: مزامنة الحلقة على التعليق (أوقات المشاهد)
+        working-directory: sadiq-amin/episode-01
+        run: |
+          export FFMPEG="$(python3 -c 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())')"
+          mkdir -p out
+          node ../common/export.mjs --stills 0 > /dev/null
+          "$FFMPEG" -y -loglevel error -i voice/narration.mp3 -af atempo=1.06 out/narration_tempo.wav
+          python3 ../common/sync.py out/narration_tempo.wav
+
+      - name: رندر الفريمات ${{ matrix.part.a }}–${{ matrix.part.b }}
+        working-directory: sadiq-amin/pilot-3d
+        run: |
+          export FFMPEG="$(python3 -c 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())')"
+          mkdir -p out
+          node ../common/export.mjs --gl --warp ../episode-01/out/warp.json --until "${{ inputs.until }}" \
+            --range "${{ matrix.part.a }}:${{ matrix.part.b }}" --out "part_$(printf %02d ${{ matrix.part.i }}).mp4" \
+            | grep -v "GPU stall" || true
+          test -s "out/part_$(printf %02d ${{ matrix.part.i }}).mp4"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: part-${{ matrix.part.i }}
+          path: sadiq-amin/pilot-3d/out/part_*.mp4
+          retention-days: 1
+
+  assemble:
+    name: تجميع الأجزاء + الصوت + النشر
+    needs: render
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/Motion-Graphics
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          sparse-checkout: |
+            sadiq-amin
+            assets
+            videos/sadiq-amin-ep01-am-al-fil.mp4
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: تثبيت الأدوات
+        run: |
+          pip install -q numpy imageio-ffmpeg
+          cd sadiq-amin && npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: part-*
+          path: parts
+          merge-multiple: true
+
+      - name: الصوت (تعليق + تلاوة + مؤثرات) ولزق الأجزاء
+        run: |
+          set -euo pipefail
+          export FFMPEG="$(python3 -c 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())')"
+          ROOT="$PWD"; UNTIL="${{ inputs.until }}"
+          cd sadiq-amin/episode-01 && mkdir -p out
+          node ../common/export.mjs --stills 0 > /dev/null
+          "$FFMPEG" -y -loglevel error -i voice/narration.mp3 -af atempo=1.06 out/narration_tempo.wav
+          python3 ../common/sync.py out/narration_tempo.wav
+          WARP="$(cat out/warp.json)" RECITE="$(cat out/recite.json)" VOICE=out/voice_placed.wav OUT=out/audio.wav python3 ../common/audio.py
+          cd "$ROOT"
+          ls parts/part_*.mp4 | sort | sed "s|^|file '$ROOT/|; s|$|'|" > parts/list.txt
+          "$FFMPEG" -y -loglevel error -f concat -safe 0 -i parts/list.txt -c copy parts/frames.mp4
+          mkdir -p dist
+          FADE_AT="$(python3 -c "print(max(0.0, $UNTIL - 0.6))")"
+          "$FFMPEG" -y -loglevel error -i parts/frames.mp4 -i sadiq-amin/episode-01/out/audio.wav -t "$UNTIL" \
+            -filter_complex "[0:v]fade=t=out:st=$FADE_AT:d=0.6[v];[1:a]afade=t=out:st=$FADE_AT:d=0.6[a]" -map "[v]" -map "[a]" \
+            -c:v libx264 -preset slow -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart "dist/$SLUG.mp4"
+          node sadiq-amin/pilot-3d/labels.mjs parts/labels.png
+          "$FFMPEG" -y -loglevel error -i videos/sadiq-amin-ep01-am-al-fil.mp4 -i "dist/$SLUG.mp4" -i parts/labels.png -t "$UNTIL" \
+            -filter_complex "[0:v]scale=540:960,setsar=1[a];[1:v]scale=540:960,setsar=1[b];[a][b]hstack=inputs=2[s];[s][2:v]overlay=0:0[v]" \
+            -map "[v]" -map 1:a -c:v libx264 -preset slow -crf 21 -pix_fmt yuv420p -c:a aac -b:a 160k -movflags +faststart "dist/$SLUG-vs-2d.mp4"
+          ls -la dist
+
+      - name: النشر كـ Release (مسوّدة)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: motion3d-${{ github.run_number }}
+          name: "الصادق الأمين — 3D (رندر ${{ github.run_number }})"
+          draft: true
+          body: |
+            رندر 3D من `EGYFIRE/Motion-Graphics` @ `${{ inputs.ref }}` — ${{ inputs.until }} ثانية على ${{ inputs.chunks }} جهاز.
+          files: |
+            dist/*.mp4
