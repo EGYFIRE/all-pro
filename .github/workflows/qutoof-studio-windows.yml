@@ -46,14 +46,24 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist
 
-      - name: اسم الإصدار
+      - name: الملفات (كامل أول مرة + تحديث صغير + المحتوى)
         id: v
         shell: bash
         run: |
+          set -euo pipefail
           V=$(node -p "require('./qutoof-studio/package.json').version")
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=qutoof-studio-v$V-b${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-          ls -la qutoof-studio/dist
+          mkdir -p out
+          # كامل: أول مرة بس (Electron + ffmpeg مابيتغيروش)
+          mv "qutoof-studio/dist/Qutoof Studio-$V-win.zip" "out/QutoofStudio-$V-full-win.zip"
+          # تحديث صغير: كود البرنامج + three.js — بيتفك فوق النسخة الموجودة
+          cd qutoof-studio/dist/win-unpacked
+          7z a -tzip -mx=9 "../../../out/QutoofStudio-$V-update.zip" resources/app.asar resources/app.asar.unpacked/src resources/three > /dev/null
+          # المحتوى التجريبي المدمج (الحلقات) — بس لو اتغير
+          7z a -tzip -mx=9 "../../../out/QutoofStudio-$V-content.zip" resources/content > /dev/null
+          cd ../../..
+          ls -la out
 
       - name: النشر كـ Release (مسوّدة)
         uses: softprops/action-gh-release@v2
@@ -63,5 +73,7 @@ jobs:
           draft: true
           body: |
             ستديو قطوف — رندر الحلقات على كارت الشاشة. من `EGYFIRE/Motion-Graphics` @ `${{ inputs.ref }}`.
-            فك الـ zip وشغّل `QutoofStudio.exe` (لو ويندوز حذّر: More info ← Run anyway).
-          files: qutoof-studio/dist/*.zip
+            - `QutoofStudio-…-full-win.zip`: **أول مرة بس** — فكّه وشغّل `QutoofStudio.exe` (لو ويندوز حذّر: More info ← Run anyway).
+            - `QutoofStudio-…-update.zip` (صغير): **تحديث** — اقفل البرنامج، وفكّه جوه نفس فولدره (اللي فيه `QutoofStudio.exe`) ووافق على استبدال الملفات.
+            - `QutoofStudio-…-content.zip`: الحلقات التجريبية المدمجة — بس لو اتغيرت (نفس طريقة التحديث).
+          files: out/*.zip
