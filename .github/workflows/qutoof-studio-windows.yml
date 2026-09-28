@@ -1,0 +1,67 @@
+name: Build Qutoof Studio (Windows)
+
+# سورس «ستديو قطوف» خاص في EGYFIRE/Motion-Graphics ولا يُبنى هناك أبدًا (دقائق الريبوهات الخاصة محدودة).
+# البناء هنا (ريبو عام = دقائق مجانية)، والناتج (zip للويندوز فيه البرنامج + محتوى تجريبي)
+# بيتنشر كـ Release مسوّدة بتاج يبدأ بـ qutoof-studio-.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع أو الكوميت في EGYFIRE/Motion-Graphics"
+        required: false
+        default: "claude/small-loop-3d-code-6d0omq"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: بناء ستديو قطوف (ويندوز)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/Motion-Graphics
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          sparse-checkout: |
+            qutoof-studio
+            sadiq-amin
+            assets/fonts
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: تثبيت الأدوات (Electron + ffmpeg + three)
+        working-directory: qutoof-studio
+        run: npm ci --no-audit --no-fund
+
+      - name: بناء النسخة (zip)
+        working-directory: qutoof-studio
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist
+
+      - name: اسم الإصدار
+        id: v
+        shell: bash
+        run: |
+          V=$(node -p "require('./qutoof-studio/package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=qutoof-studio-v$V-b${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          ls -la qutoof-studio/dist
+
+      - name: النشر كـ Release (مسوّدة)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: "ستديو قطوف v${{ steps.v.outputs.version }} (ويندوز) — بناء ${{ github.run_number }}"
+          draft: true
+          body: |
+            ستديو قطوف — رندر الحلقات على كارت الشاشة. من `EGYFIRE/Motion-Graphics` @ `${{ inputs.ref }}`.
+            فك الـ zip وشغّل `QutoofStudio.exe` (لو ويندوز حذّر: More info ← Run anyway).
+          files: qutoof-studio/dist/*.zip
