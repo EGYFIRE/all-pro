@@ -63,7 +63,9 @@ jobs:
           # المحتوى التجريبي المدمج (الحلقات) — بس لو اتغير
           7z a -tzip -mx=9 "../../../out/QutoofStudio-$V-content.zip" resources/content > /dev/null
           # مكتبة الأصوات الحقيقية — بس لو اتغيرت
-          7z a -tzip -mx=1 "../../../out/QutoofStudio-$V-library.zip" resources/library > /dev/null
+          7z a -tzip -mx=1 "../../../out/QutoofStudio-$V-library.zip" resources/library/sounds > /dev/null
+          # موديلات الشخصيات والحيوانات (Blender) — مرة واحدة، وبعد كده بس لو اتغيرت
+          if [ -d resources/library/models ]; then 7z a -tzip -mx=5 "../../../out/QutoofStudio-$V-models.zip" resources/library/models > /dev/null; fi
           cd ../../..
           ls -la out
 
@@ -79,4 +81,5 @@ jobs:
             - `QutoofStudio-…-update.zip` (صغير): **تحديث** — اقفل البرنامج، وفكّه جوه نفس فولدره (اللي فيه `QutoofStudio.exe`) ووافق على استبدال الملفات.
             - `QutoofStudio-…-content.zip`: الحلقات التجريبية المدمجة — بس لو اتغيرت (نفس طريقة التحديث).
             - `QutoofStudio-…-library.zip`: مكتبة الأصوات الحقيقية — بس لو اتغيرت (نفس طريقة التحديث).
+            - `QutoofStudio-…-models.zip`: موديلات الشخصيات والحيوانات 3D — مرة واحدة، وبعد كده بس لو اتغيرت (نفس طريقة التحديث).
           files: out/*.zip
