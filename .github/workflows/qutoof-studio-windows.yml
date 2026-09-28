@@ -1,7 +1,7 @@
 name: Build Qutoof Studio (Windows)
 
 # سورس «ستديو قطوف» خاص في EGYFIRE/Motion-Graphics ولا يُبنى هناك أبدًا (دقائق الريبوهات الخاصة محدودة).
-# البناء هنا (ريبو عام = دقائق مجانية)، والناتج (zip للويندوز فيه البرنامج + محتوى تجريبي)
+# البناء هنا (ريبو عام = دقائق مجانية)، والناتج (zip للويندوز فيه البرنامج + محتوى تجريبي + مكتبة الأصوات)
 # بيتنشر كـ Release مسوّدة بتاج يبدأ بـ qutoof-studio-.
 
 on:
@@ -57,11 +57,13 @@ jobs:
           mkdir -p out
           # كامل: أول مرة بس (Electron + ffmpeg مابيتغيروش)
           mv "qutoof-studio/dist/Qutoof Studio-$V-win.zip" "out/QutoofStudio-$V-full-win.zip"
-          # تحديث صغير: كود البرنامج + three.js — بيتفك فوق النسخة الموجودة
+          # تحديث صغير: كود البرنامج + المشغّل + نص القرآن + three.js — بيتفك فوق النسخة الموجودة
           cd qutoof-studio/dist/win-unpacked
-          7z a -tzip -mx=9 "../../../out/QutoofStudio-$V-update.zip" resources/app.asar resources/app.asar.unpacked/src resources/three > /dev/null
+          7z a -tzip -mx=9 "../../../out/QutoofStudio-$V-update.zip" resources/app.asar resources/app.asar.unpacked/src resources/app.asar.unpacked/data resources/three > /dev/null
           # المحتوى التجريبي المدمج (الحلقات) — بس لو اتغير
           7z a -tzip -mx=9 "../../../out/QutoofStudio-$V-content.zip" resources/content > /dev/null
+          # مكتبة الأصوات الحقيقية — بس لو اتغيرت
+          7z a -tzip -mx=1 "../../../out/QutoofStudio-$V-library.zip" resources/library > /dev/null
           cd ../../..
           ls -la out
 
@@ -76,4 +78,5 @@ jobs:
             - `QutoofStudio-…-full-win.zip`: **أول مرة بس** — فكّه وشغّل `QutoofStudio.exe` (لو ويندوز حذّر: More info ← Run anyway).
             - `QutoofStudio-…-update.zip` (صغير): **تحديث** — اقفل البرنامج، وفكّه جوه نفس فولدره (اللي فيه `QutoofStudio.exe`) ووافق على استبدال الملفات.
             - `QutoofStudio-…-content.zip`: الحلقات التجريبية المدمجة — بس لو اتغيرت (نفس طريقة التحديث).
+            - `QutoofStudio-…-library.zip`: مكتبة الأصوات الحقيقية — بس لو اتغيرت (نفس طريقة التحديث).
           files: out/*.zip
