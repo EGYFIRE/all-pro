@@ -22,6 +22,7 @@
 | شقة ١٤ — لعبة رعب (Android، Unity 6) | `shaqqa14-android.yml` | `shaqqa14-v…` | `EGYFIRE/Escape-Rooms` |
 | الصادق الأمين — موشن جرافيك 3D (فيديو MP4) | `motion-graphics-3d.yml` | `motion3d-…` | `EGYFIRE/Motion-Graphics` |
 | ستديو قطوف — برنامج رندر الحلقات (Windows) | `qutoof-studio-windows.yml` | `qutoof-studio-v…` | `EGYFIRE/Motion-Graphics` |
+| الرجل العنكبوت المصري — لعبة أكشن (Windows) | `egyptian-spiderman-windows.yml` | `esm-v…` | `EGYFIRE/Spider-man-EGYPTIAN` |
 
 ## الإصدارات مسوّدات، لا منشورات
 
