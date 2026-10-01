@@ -14,7 +14,7 @@ on:
       version:
         description: "رقم الإصدار (versionName)"
         required: false
-        default: "1.3.0"
+        default: "1.0.0"
       upload_to_play:
         description: "رفع الـ AAB على Google Play (مسار internal كمسودة) — محتاج secret PLAY_SERVICE_ACCOUNT_JSON"
         required: false
