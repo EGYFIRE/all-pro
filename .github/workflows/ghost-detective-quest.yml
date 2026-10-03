@@ -1,0 +1,136 @@
+name: Build Quest APK (المحقق الشبح)
+
+# السورس خاص في EGYFIRE/Vr-games ولا يُبنى هناك أبدًا: الريبوهات الخاصة تشترك في
+# 2000 دقيقة شهريًا فقط. البناء يتم هنا (ريبو عام = دقائق مجانية غير محدودة)، والناتج
+# يُنشر كـ Release (مسوّدة) على هذا الريبو بتاج يبدأ بـ ghost-detective-.
+#
+# اللعبة: Godot 4.7.2 + Godot OpenXR Vendors 5.1.0 لنضارة Meta Quest 3.
+# كل خطوات البناء موجودة في السورس نفسه: ghost-detective/tools/build_apk.sh
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "الفرع أو الكوميت في الريبو الخاص المطلوب بناؤه"
+        required: false
+        default: "ccr-91888a8f-u86pz2"
+      version_name:
+        description: "رقم الإصدار اللي هيظهر على النضارة (مثلاً 1.0.1)"
+        required: false
+        default: "1.0.1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ghost-detective-quest
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: بناء ونشر المحقق الشبح
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: EGYFIRE/Vr-games
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          path: src
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: تثبيت حزم Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" "build-tools;36.1.0" "platforms;android-36" > /dev/null
+
+      # Godot + قوالب أندرويد (~600MB) بتتحفظ عشان البناء الجاي يبقى أسرع.
+      - name: كاش Godot وقوالب التصدير
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ghost-detective-build
+            ~/.local/share/godot/export_templates
+          key: ghost-detective-godot-4.7.2-v1
+
+      - name: كاش Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ghost-detective-gradle-v1
+
+      # السكريبت بيشغّل اختبار لعب آلي (بوت بيكسب القضية الأولى) قبل التصدير،
+      # ولو فشل الاختبار البناء بيقف.
+      - name: بناء APK
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: bash src/ghost-detective/tools/build_apk.sh "$VERSION_NAME" "$VERSION_CODE"
+
+      - name: تجهيز الملفات
+        id: files
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          RUN_NO: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          APK="GhostDetective-${VERSION_NAME}-b${RUN_NO}.apk"
+          cp src/ghost-detective/build/GhostDetective.apk "dist/$APK"
+          ( cd dist && sha256sum ./*.apk > SHA256SUMS.txt )
+          echo "tag=ghost-detective-v${VERSION_NAME}-b${RUN_NO}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git -C src rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          ls -la dist
+
+      - name: تجهيز وصف الإصدار
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          SRC_REF: ${{ inputs.ref }}
+          SRC_SHA: ${{ steps.files.outputs.sha }}
+          RUN_NO: ${{ github.run_number }}
+        run: |
+          SUMS="$(sed 's|\./||' dist/SHA256SUMS.txt)"
+          {
+            printf '## المحقق الشبح %s\n\n' "$VERSION_NAME"
+            printf 'لعبة واقع مختلط لنضارة Meta Quest 3: اصطاد الأشباح المستخبية في أوضتك الحقيقية.\n\n'
+            cat <<'BODY'
+          ### التثبيت على الكويست
+
+          1. فعّل **Developer Mode** من تطبيق Meta Horizon على الموبايل.
+          2. ثبّت الـ APK بـ SideQuest أو بالأمر `adb install -r <اسم الملف>.apk`.
+          3. هتلاقي اللعبة في المكتبة تحت **Unknown Sources**.
+          4. وافق على إذن **بيانات المساحة (Spatial Data)**، ولو أوضتك مش ممسوحة اختار «امسح الأوضة».
+
+          ---
+
+          BODY
+            printf '```\n%s\n```\n\n' "$SUMS"
+            printf '_بُني من الريبو الخاص `EGYFIRE/Vr-games` عند `%s` (`%s`) — بناء رقم %s._\n' "$SRC_REF" "$SRC_SHA" "$RUN_NO"
+          } > release-body.md
+          cat release-body.md
+
+      - name: نشر الإصدار
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.files.outputs.tag }}
+          name: "المحقق الشبح — إصدار v${{ inputs.version_name }} (بناء ${{ github.run_number }})"
+          body_path: release-body.md
+          files: dist/*
+          fail_on_unmatched_files: true
+          # مسوّدة: الريبو عام ليأخذ دقائق Actions المجانية، لا لينشر النسخ للعامة.
+          # الملفات لا يراها ولا يحمّلها إلا صاحب الريبو وهو مسجّل دخول.
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

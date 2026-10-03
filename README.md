@@ -23,6 +23,7 @@
 | الصادق الأمين — موشن جرافيك 3D (فيديو MP4) | `motion-graphics-3d.yml` | `motion3d-…` | `EGYFIRE/Motion-Graphics` |
 | ستديو قطوف — برنامج رندر الحلقات (Windows) | `qutoof-studio-windows.yml` | `qutoof-studio-v…` | `EGYFIRE/Motion-Graphics` |
 | الرجل العنكبوت المصري — لعبة أكشن (Windows) | `egyptian-spiderman-windows.yml` | `esm-v…` | `EGYFIRE/Spider-man-EGYPTIAN` |
+| المحقق الشبح — لعبة واقع مختلط (Meta Quest 3، Godot) | `ghost-detective-quest.yml` | `ghost-detective-v…` | `EGYFIRE/Vr-games` |
 
 ## الإصدارات مسوّدات، لا منشورات
 
